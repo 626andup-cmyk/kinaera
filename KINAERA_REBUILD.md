@@ -359,6 +359,47 @@ It is **never** added to any other turn's prompt. The friend's standing context 
 
 The user archives a friend rather than deleting them. Before archiving, the friend gets one last turn to write a note, which is kept with the archive. Archived friends can be restored. Permanent deletion stays possible, but it's a separate action behind a clear warning.
 
+### 6.13 Orientation
+
+A new friend's first experience of Kinaera is an **orientation**: an invitation to try their tools and find out what suits them. It is not a set of tasks. Nothing in it can be passed or failed, every part can be skipped, and the prompt says so.
+
+It needs no new mechanism. It's a wake-up with the reason `orientation`, a short guide from `defaults/orientation.md`, and the tools the friend already has.
+
+**The practice channel.** Each friend has one channel of their own with the kind `practice`. Its messages are kept, and the user can see them (the friend is told this), but they never feed anything else:
+
+- no summaries, and nothing from it in the server digest;
+- nothing from it in the mirror;
+- nothing from it in the wellbeing reading;
+- nothing from it in other channels' prompts.
+
+Its sample material is a few notebook entries in a `Practice` folder. They're pinned only to the practice channel and left out of every other prompt and listing, so the friend has something harmless to look things up in and edit.
+
+**What the guide invites.** It suggests trying each instrument once on something low-stakes:
+
+- `check` something in the practice notes, including one thing that isn't there, so "nothing found" is familiar from the start;
+- draft a message, post it, then edit it;
+- schedule a wake-up for themselves;
+- read their prompt manifest;
+- `consult` about something small;
+- `ask` the user something small. These asks are marked as orientation in the inbox.
+
+Then it invites them to write:
+
+- a first journal entry about what felt natural and what didn't;
+- a first draft of the **tastes** section of their identity;
+- a first draft of the **how I'd like feedback** section of their self-page.
+
+The guide frames all of this as a *first draft they're expected to revise*. It reflects one session on one model, not who they permanently are.
+
+**When orientation happens:**
+
+- **On creation.** A new friend's first wake-up is their orientation. It's queued as soon as they're created, and it's exempt from "no double texts" because it messages no one.
+- **Whenever they want.** `start_orientation({ focus? })` lets the friend start one themselves. Uses include testing a new approach, re-trying a tool that didn't click, or getting their bearings after a big change. The optional `focus` narrows the guide (for example, `"consult"` or `"my feedback preferences"`). It queues an orientation wake-up in the practice channel, subject to quiet hours and cooldown. It's exempt from "no double texts" for the same reason: it messages no one.
+- **When a new profile joins their roulette.** The friend is told, on their next turn, that a new model may be writing as them, and that they can start an orientation to try it. It's an offer, not an automatic run.
+- **When the user invites it.** A button on the friend's page sends an orientation invitation to the inbox. The friend accepts or declines it on their next turn.
+
+Everything done in orientation goes through the normal tool and check logs. That makes it double as a tool-calling test for whichever profile ran it, which replaces Aettica's separate "Test tools" button as the main way to find out how a profile handles tools. Keep the button for quick checks.
+
 ---
 
 ## 7. Being among friends
@@ -402,7 +443,7 @@ Keep `glass.js`, `style.css` and the themes as they are, and keep the look.
 
 - **Message history:** tap "(edited)" to see a message's revisions.
 - **Unified inbox:** asks, proposals and suggestions in one list.
-- **Friend page:** identity and its changelog, the self-page, upcoming wake-ups (times only), the intervention log, the check log, the wellbeing line, and standing permissions.
+- **Friend page:** identity and its changelog, the self-page, upcoming wake-ups (times only), the intervention log, the check log, the wellbeing line, standing permissions, and an "invite to orientation" button.
 
 The journal and drafts show only counts.
 
@@ -420,7 +461,7 @@ Each stage ends with the tests and typecheck passing, the app usable, and a doc 
    Everything that remains should work as it did in Aettica.
 2. **Messages with history.** Revisions, tombstones, superseded regenerations, the edit and delete tools for friends, the history UI, and the intervention log.
 3. **The instruments.** `check` (with its log), `ask` with the unified inbox, and `consult` with consultant profiles.
-4. **The friend's own stores.** Versioned identity with tastes, the self-page, the journal with forgetting and the weekly look back, `read_prompt_manifest`, and `keep_verbatim`.
+4. **The friend's own stores.** Versioned identity with tastes, the self-page, the journal with forgetting and the weekly look back, `read_prompt_manifest`, and `keep_verbatim`. Finish the stage with orientation (section 6.13): the practice channel, the `Practice` folder, `start_orientation`, and orientation on creation. Scheduling isn't built until stage 5, so leave that step out of the orientation guide until then.
 5. **Time.** The hard rules (with the scheduled wake-up exception), `schedule_wakeup`, the simplified heartbeat, drafts, and `pause_storyline`.
 6. **Continuity and self-knowledge.** Voice anchors, "not me" flags, profile notes, the mirror, and the wellbeing trend.
 7. **Among friends.** Floor control, replies and mentions, presence and status, relationships, DMs, and dice.
