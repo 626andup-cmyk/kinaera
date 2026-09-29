@@ -1,4 +1,7 @@
-# Kinaera — Design Doc
+# Aettica — Design Doc
+
+> **Note:** this is Aettica's design document, kept for its reasoning about channels, scenes, the notebook, prompts and themes. Where it disagrees with [KINAERA_REBUILD.md](KINAERA_REBUILD.md), the rebuild guide wins. In particular, the notebook keeper, the idea drawer and Jev's double-checks described below were removed in Kinaera (see [docs/rebuild-1b.md](docs/rebuild-1b.md)).
+
 
 Sep 24, 2026 · @Neon
 
@@ -232,7 +235,7 @@ The whole look of Kinaera is themeable, including glassy, skeuomorphic styles li
 
 Each stage adds one new concept, so there's only ever one new thing to learn. Stage 1 is essentially Tiny RP.
 
-**Progress:** stages 1 to 8 are built. See [docs/stage-1.md](docs/stage-1.md), [docs/stage-2.md](docs/stage-2.md), [docs/stage-3.md](docs/stage-3.md), [docs/stage-3.5.md](docs/stage-3.5.md), [docs/stage-4.md](docs/stage-4.md), [docs/stage-5.md](docs/stage-5.md), [docs/stage-6.md](docs/stage-6.md), [docs/stage-7.md](docs/stage-7.md) and [docs/stage-8.md](docs/stage-8.md) for how they work.
+**Progress:** stages 1 to 8 are built. See [docs/stage-1.md](https://github.com/626andup-cmyk/aettica/blob/main/docs/stage-1.md), [docs/stage-2.md](https://github.com/626andup-cmyk/aettica/blob/main/docs/stage-2.md), [docs/stage-3.md](https://github.com/626andup-cmyk/aettica/blob/main/docs/stage-3.md), [docs/stage-3.5.md](https://github.com/626andup-cmyk/aettica/blob/main/docs/stage-3.5.md), [docs/stage-4.md](https://github.com/626andup-cmyk/aettica/blob/main/docs/stage-4.md), [docs/stage-5.md](https://github.com/626andup-cmyk/aettica/blob/main/docs/stage-5.md), [docs/stage-6.md](https://github.com/626andup-cmyk/aettica/blob/main/docs/stage-6.md), [docs/stage-7.md](https://github.com/626andup-cmyk/aettica/blob/main/docs/stage-7.md) and [docs/stage-8.md](https://github.com/626andup-cmyk/aettica/blob/main/docs/stage-8.md) for how they work.
 
 | Stage | Adds | New concept learned |
 | --- | --- | --- |
@@ -258,8 +261,8 @@ All of these are built now (each links to how it works).
 - **Channel categories** and drag-and-drop reordering (built, see [docs/categories.md](docs/categories.md)): collapsible, Discord-style categories; drag channels and category headers with a mouse, or press-and-hold on a phone. Your friend can make categories and move channels into them.
 - **Multi-bubble OOC** with typing delays (built, see [docs/texting.md](docs/texting.md)): Kitsikai's `<cht>` texting, revealed one text at a time with "typing…" (base + characters × per-character, double-tap to skip), and a pause before your friend answers several quick texts at once.
 - **Emoji reactions** (built, see [docs/reactions.md](docs/reactions.md)): on messages, from you and your friend (with the `react_to_message` tool), including custom emojis (uploaded images used as `:name:`, in reactions and messages). Your friend sees reactions on recent messages in both directions, as quiet feedback.
-- **Notebook keeper** (built, see [docs/notebook-keeper.md](docs/notebook-keeper.md)): every few roleplay posts, a Jev series (each question in two phrasings that must agree) asks whether something new was named or a lasting fact established. Only on a yes does a writer draft changes, each with a claim. Every claim is checked by Jev against the messages alone before it's made, as your friend (new entries shared; notes on your entries go through permissions and may become suggestions). It never sees entries hidden from you.
-- **Jev everywhere it helps** (built, see [docs/jev-audit.md](docs/jev-audit.md)): every guess in Kinaera was reviewed. Now Jev series decide comment replies on your own messages, confirm your friend deleting an entry, turn their edits to your entries into suggestions unless you asked, check scene summaries against the scene, and confirm bare-word channel mentions in OOC. Borrowed from Kitsikai: a wake-up's channel is Jev's choice, and the notebook keeper corrects notes the story contradicts. Everything else stays a rule, with the reasons in the audit.
+- **Notebook keeper** (built, see [docs/notebook-keeper.md](https://github.com/626andup-cmyk/aettica/blob/main/docs/notebook-keeper.md)): every few roleplay posts, a Jev series (each question in two phrasings that must agree) asks whether something new was named or a lasting fact established. Only on a yes does a writer draft changes, each with a claim. Every claim is checked by Jev against the messages alone before it's made, as your friend (new entries shared; notes on your entries go through permissions and may become suggestions). It never sees entries hidden from you.
+- **Jev everywhere it helps** (built, see [docs/jev-audit.md](https://github.com/626andup-cmyk/aettica/blob/main/docs/jev-audit.md)): every guess in Kinaera was reviewed. Now Jev series decide comment replies on your own messages, confirm your friend deleting an entry, turn their edits to your entries into suggestions unless you asked, check scene summaries against the scene, and confirm bare-word channel mentions in OOC. Borrowed from Kitsikai: a wake-up's channel is Jev's choice, and the notebook keeper corrects notes the story contradicts. Everything else stays a rule, with the reasons in the audit.
 - **Reference library** (built, see [docs/library.md](docs/library.md)): upload long texts (like movie scripts for a fandom). They're split into passages at scene headings and indexed with FTS5 (stemmed; speakers and headings weigh most), and your friend searches and reads them with `search_library` and `read_library` when they want to. The prompt only lists titles and descriptions; the texts are never sent whole. A document can be limited to some channels (OOC always sees all).
 
 ## Open questions

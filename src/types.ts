@@ -332,13 +332,13 @@ export interface Settings {
    */
   summaryAssignment: string;
 
-  // Stage 8: decisions (Jev) and wake-ups.
+  // Jev (the small decision model, used only by `check`) and wake-ups.
 
   /** Jev's model id on nanoGPT (pinned, like `typesafe/jev-1.13`), or "" to turn Jev off. */
   decisionModel: string;
   /** A profile asked instead when Jev fails (`"profile:<id>"`), or "" for none. */
   decisionFallback: string;
-  /** How sure a decision has to be to count as a yes or a no (0.5 to 0.99). Unsure takes the safe path. */
+  /** How sure Jev has to be for an answer to count as a confident yes or no (0.5 to 0.99). */
   decisionConfidence: number;
   /**
    * How readily your friend takes a turn on their own (a wake-up):
@@ -357,13 +357,6 @@ export interface Settings {
   quietStart: number;
   /** ...to this hour (0–23). */
   quietEnd: number;
-
-  // The notebook keeper (src/keeper.ts).
-
-  /** Whether the notebook keeper notes new characters, places and lasting facts from roleplay. */
-  notebookKeeper: boolean;
-  /** How many new posts in a roleplay channel before the keeper looks at them (a scene ending always counts). */
-  keeperEvery: number;
   /**
    * How often the heartbeat looks for a reason to reach out, in hours
    * (roughly: each gap varies by ±20%). 0 turns it off. See src/heartbeat.ts.
@@ -380,8 +373,6 @@ export interface Settings {
   typingPerCharMs: number;
   /** OOC, with bubbles: how long your friend waits after your last bubble before answering (ms). 0: at once. */
   replyDelayMs: number;
-  /** Whether Jev double-checks guesses: comment replies, deleting entries, summaries, channel mentions (src/judge.ts). */
-  jevChecks: boolean;
 }
 
 /** How readily your friend reaches out on their own (see `Settings.wakeups`). */
@@ -477,11 +468,8 @@ export interface ToolCallRecord {
   status: "ok" | "error";
   /** For people: "pinned Tamsin to #story". For errors, what went wrong. */
   summary: string;
-  /**
-   * `native` if the API returned it as a tool call; `text` if it was written
-   * out in the reply; `keeper` for the notebook keeper's changes (src/keeper.ts).
-   */
-  source: "native" | "text" | "keeper";
+  /** `native` if the API returned it as a tool call; `text` if it was written out in the reply. */
+  source: "native" | "text";
   profile: string | null;
   createdAt: string;
 }

@@ -319,8 +319,8 @@
           <option value="chatty">Chatty: also whenever you open the app</option>
         </select>
         <p class="hint">
-          Your friend may take a turn on their own, in your OOC channel. Jev (below) checks first whether it's the
-          moment, and they can always choose not to write.
+          Your friend may take a turn on their own, in your OOC channel. Quiet hours, the cooldown and "never twice
+          without you writing" always apply; after that, whether to write is up to them.
         </p>
         <div class="grid assignment-grid wakeups-only">
           <div>
@@ -394,10 +394,8 @@
         <div class="wakeups-only">
           <label for="setting-heartbeat">Heartbeat</label>
           <p class="hint">
-            Now and then, even with the app closed, your friend comes up with a few ideas (a story, a character, a
-            twist, a thought). Jev grades them, and your friend texts you the best, if it's really good and it's a good
-            moment. The rest go in their idea drawer, to bring up another time. Set quiet hours above so it never
-            wakes you.
+            Now and then, even with the app closed, your friend gets a free moment of their own. They can text you,
+            act with their tools, or do nothing. Set quiet hours above so it never wakes you.
           </p>
           <select id="setting-heartbeat" name="heartbeatHours">
             <option value="0">Off</option>
@@ -414,20 +412,15 @@
           <summary>Recent wake-ups</summary>
           <ul id="wake-log-list" class="wake-log-list"></ul>
         </details>
-        <details class="wake-log wakeups-only" id="idea-drawer">
-          <summary>Idea drawer</summary>
-          <p class="hint">Ideas your friend had on a heartbeat: shared, saved for later, or dropped.</p>
-          <ul id="idea-list" class="wake-log-list"></ul>
-          <div class="memory-buttons">
-            <button type="button" class="button" id="beat-now">Beat now</button>
-          </div>
-          <p class="hint" id="beat-result" role="status"></p>
-        </details>
+        <div class="memory-buttons wakeups-only">
+          <button type="button" class="button" id="beat-now">Beat now</button>
+        </div>
+        <p class="hint wakeups-only" id="beat-result" role="status"></p>
 
-        <h3 class="section-title">Decisions (Jev)</h3>
+        <h3 class="section-title">Jev (for checking facts)</h3>
         <p class="hint">
-          Jev is a fast decision model on nanoGPT that makes small yes-or-no calls (is this the moment to reach out?)
-          with a confidence, and never writes. Unsure always takes the safe path.
+          Jev is a fast decision model on nanoGPT that answers small yes-or-no questions with a confidence, and never
+          writes. It never decides anything for your friend: it's an instrument they can use to check facts.
         </p>
         <div class="grid assignment-grid">
           <div>
@@ -446,30 +439,6 @@
           <button type="button" class="button" id="open-jev-log">Jev log</button>
         </div>
         <p class="hint" id="test-jev-result" role="status"></p>
-
-        <label class="check-option">
-          <input type="checkbox" name="jevChecks" />
-          <span
-            ><strong>Double-check with Jev</strong><br /><span class="hint"
-              >Jev checks the guesses Kinaera makes: whether a comment on your own message wants a reply, whether your
-              friend deleting an entry (or editing one of yours) is what you want, whether a scene summary is
-              faithful, and whether a channel really came up in OOC.</span
-            ></span
-          >
-        </label>
-
-        <label class="check-option">
-          <input type="checkbox" name="notebookKeeper" />
-          <span
-            ><strong>Notebook keeper</strong><br /><span class="hint"
-              >Every few posts in a roleplay channel, Jev checks whether the story named someone new or established
-              something lasting. If so, your friend notes it in the notebook: new entries are shared, and notes on
-              yours may come to you as suggestions. Every note is checked against the messages first.</span
-            ></span
-          >
-        </label>
-        <label for="setting-keeper-every">Check every (posts)</label>
-        <input id="setting-keeper-every" name="keeperEvery" type="number" min="2" max="100" step="1" />
 
         <p class="form-error" role="alert" hidden></p>
 
@@ -694,7 +663,7 @@
           <h2 class="dialog-title" id="friend-dialog-title">Friend</h2>
         </div>
         <p class="hint">
-          Everything they remember is theirs alone: their notebook, channels, ideas and settings. Other friends never
+          Everything they remember is theirs alone: their notebook, channels and settings. Other friends never
           see it.
         </p>
 

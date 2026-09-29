@@ -1,6 +1,6 @@
 # Theme reference
 
-This is everything a theme can change. How themes are stored, loaded and scoped is explained in [stage-3.5.md](stage-3.5.md).
+This is everything a theme can change. How themes are stored, loaded and scoped is explained in [stage-3.5.md](https://github.com/626andup-cmyk/aettica/blob/main/docs/stage-3.5.md) (Aettica's stage doc).
 
 A theme is CSS. Most themes only need to redefine the **variables** below. Anything variables can't express, a theme can do by targeting the **classes**.
 

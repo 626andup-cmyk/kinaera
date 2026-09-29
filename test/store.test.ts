@@ -7,7 +7,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
-import { MIGRATIONS, openDatabase, SCHEMA_VERSION } from "../src/db.ts";
+import { openDatabase, SCHEMA_VERSION } from "../src/db.ts";
 import { NotFoundError, Store, ValidationError, validateNewChannel, validateSettings } from "../src/store.ts";
 import { tempDir } from "./helpers.ts";
 
@@ -66,133 +66,25 @@ describe("the database layout", () => {
     db.close();
   });
 
-  test("upgrades a stage 2 database, keeping its data", () => {
-    // Build a database the way stage 2 left it: only the first migration.
-    const path = join(dir.path, "stage2.db");
-    const old = new Database(path);
-    old.exec(MIGRATIONS[0] as string);
-    old.exec("PRAGMA user_version = 1");
-    old.exec(`INSERT INTO channels (id, name, kind, position, created_at) VALUES ('rp', 'story', 'rp', 0, 'then')`);
-    old.exec(`INSERT INTO channels (id, name, kind, position, created_at) VALUES ('ooc', 'ooc', 'ooc', 1, 'then')`);
-    old.exec(`INSERT INTO messages (id, channel_id, author, content, created_at) VALUES ('m1', 'rp', 'user', 'Hi', 'then')`);
-    old.exec(`INSERT INTO messages (id, channel_id, author, content, created_at) VALUES ('m2', 'ooc', 'user', 'Yo', 'then')`);
-    old.close();
-
-    const db = openDatabase(path);
-    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: SCHEMA_VERSION });
-    expect(db.query("SELECT id, mode, pending_mode FROM channels ORDER BY position").all()).toEqual([
-      { id: "rp", mode: "literary", pending_mode: null },
-      { id: "ooc", mode: "literary", pending_mode: null },
-    ]);
-    // RP messages were literary; OOC messages have no mode.
-    expect(db.query("SELECT id, kind, mode, turn_id FROM messages ORDER BY seq").all()).toEqual([
-      { id: "m1", kind: "post", mode: "literary", turn_id: null },
-      { id: "m2", kind: "post", mode: null, turn_id: null },
-    ]);
+  test("starts with one connection profile, writing both jobs", () => {
+    const db = openDatabase(join(dir.path, "fresh.db"));
+    const profiles = db.query("SELECT id, model FROM profiles").all() as { id: string; model: string }[];
+    expect(profiles).toHaveLength(1);
+    const setting = (key: string) => JSON.parse((db.query("SELECT value FROM settings WHERE key = ?").get(key) as { value: string }).value);
+    expect(setting("rpAssignment")).toBe(`profile:${profiles[0]!.id}`);
+    expect(setting("oocAssignment")).toBe(`profile:${profiles[0]!.id}`);
     db.close();
   });
 
-  test("migration 10 rebuilds the tool log, keeping every call in order", () => {
-    const path = join(dir.path, "stage9.db");
-    const old = new Database(path);
-    old.exec("PRAGMA foreign_keys = ON");
-    for (const step of MIGRATIONS.slice(0, 9)) typeof step === "string" ? old.exec(step) : step(old);
-    old.exec("PRAGMA user_version = 9");
-    old.exec(`INSERT INTO channels (id, name, kind, mode, position, created_at) VALUES ('rp', 'story', 'rp', 'literary', 0, 'then')`);
-    for (const id of ["b", "a", "c"]) {
-      old.exec(`INSERT INTO tool_calls (id, channel_id, turn_id, round, name, arguments, result, status, summary, source, profile, created_at)
-                VALUES ('${id}', 'rp', 't', 0, 'pin', '{}', '{}', 'ok', 'pinned ${id}', 'native', NULL, 'then')`);
-    }
-    old.close();
-
-    const db = openDatabase(path);
-    expect(db.query("SELECT id FROM tool_calls ORDER BY rowid").all()).toEqual([{ id: "b" }, { id: "a" }, { id: "c" }]);
-    // The keeper's source is allowed now.
+  test("deleting a channel takes its messages and tool calls with it", () => {
+    const db = openDatabase(join(dir.path, "cascade.db"));
+    db.exec(`INSERT INTO channels (id, name, kind, position, created_at) VALUES ('rp', 'story', 'rp', 0, 'then')`);
+    db.exec(`INSERT INTO messages (id, channel_id, author, content, created_at) VALUES ('m1', 'rp', 'user', 'Hi', 'then')`);
     db.exec(`INSERT INTO tool_calls (id, channel_id, turn_id, round, name, arguments, result, status, summary, source, profile, created_at)
-             VALUES ('k', 'rp', 't2', 0, 'notebook_keeper', '{}', '{}', 'ok', 'added X', 'keeper', NULL, 'now')`);
-    // And deleting the channel still takes its calls with it.
+             VALUES ('c', 'rp', 't', 0, 'pin', '{}', '{}', 'ok', 'pinned', 'native', NULL, 'then')`);
     db.exec("DELETE FROM channels WHERE id = 'rp'");
+    expect(db.query("SELECT COUNT(*) AS n FROM messages").get()).toEqual({ n: 0 });
     expect(db.query("SELECT COUNT(*) AS n FROM tool_calls").get()).toEqual({ n: 0 });
-    db.close();
-  });
-
-  test("moves stage 3.5's characters into the notebook", () => {
-    // A database as stage 3.5 left it: three migrations, a character in
-    // each RP channel (two identical), and your casual characters in settings.
-    const path = join(dir.path, "stage35.db");
-    const old = new Database(path);
-    for (const step of MIGRATIONS.slice(0, 3)) old.exec(step as string);
-    old.exec("PRAGMA user_version = 3");
-    const channel = old.query(
-      `INSERT INTO channels (id, name, kind, position, character_name, character_sheet, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'then')`,
-    );
-    channel.run("a", "story", "rp", 0, "Ilse Marrow", "Age: 34\nBackground: A keeper.");
-    channel.run("b", "sequel", "rp", 1, "Ilse Marrow", "Age: 34\nBackground: A keeper.");
-    channel.run("c", "heist", "rp", 2, "", "Name: Vee\nA getaway driver.");
-    channel.run("d", "ooc", "ooc", 3, "", "");
-    old.exec(`INSERT INTO settings (key, value) VALUES ('userCharacters', '[{"name":"Kestrel","prefix":"k"}]')`);
-    old.close();
-
-    const db = openDatabase(path);
-    const entries = db.query("SELECT id, name, owner, proxy_prefix, fields FROM notebook_entries ORDER BY name").all() as {
-      id: string;
-      name: string;
-      owner: string;
-      proxy_prefix: string | null;
-      fields: string;
-    }[];
-    expect(entries.map((e) => [e.name, e.owner, e.proxy_prefix])).toEqual([
-      ["Ilse Marrow", "friend", null],
-      ["Kestrel", "user", "k"],
-      ["Vee", "friend", null],
-    ]);
-    expect(JSON.parse(entries[0]!.fields)).toEqual([
-      { label: "Age", value: "34" },
-      { label: "Background", value: "A keeper." },
-    ]);
-    expect(JSON.parse(entries[2]!.fields)).toEqual([{ label: "Notes", value: "A getaway driver." }]);
-
-    const cast = (id: string) =>
-      (db.query("SELECT e.name FROM channel_cast c JOIN notebook_entries e ON e.id = c.entry_id WHERE channel_id = ? ORDER BY c.position, e.name").all(id) as { name: string }[]).map(
-        (r) => r.name,
-      );
-    // The identical character is one entry pinned to both channels.
-    expect(cast("a")).toEqual(["Ilse Marrow", "Kestrel"]);
-    expect(cast("b")).toEqual(["Ilse Marrow", "Kestrel"]);
-    expect(cast("c")).toEqual(["Vee", "Kestrel"]);
-    expect(cast("d")).toEqual([]);
-
-    expect(db.query("SELECT * FROM settings WHERE key = 'userCharacters'").get()).toBeNull();
-    const columns = (db.query("PRAGMA table_info(channels)").all() as { name: string }[]).map((c) => c.name);
-    expect(columns).not.toContain("character_name");
-    db.close();
-  });
-
-  test("moves stage 4's model settings into a connection profile", () => {
-    const path = join(dir.path, "stage4.db");
-    const old = new Database(path);
-    for (const step of MIGRATIONS.slice(0, 4)) {
-      if (typeof step === "string") old.exec(step);
-      else step(old);
-    }
-    old.exec("PRAGMA user_version = 4");
-    const setting = old.query("INSERT INTO settings (key, value) VALUES (?, ?)");
-    setting.run("model", JSON.stringify("zai/glm-5.2"));
-    setting.run("temperature", "1.1");
-    setting.run("maxTokens", "700");
-    old.close();
-
-    const db = openDatabase(path);
-    const profiles = db.query("SELECT id, name, model, temperature, max_tokens FROM profiles").all() as {
-      id: string;
-      name: string;
-    }[];
-    expect(profiles).toMatchObject([{ name: "glm-5.2", model: "zai/glm-5.2", temperature: 1.1, max_tokens: 700 }]);
-    const settings = Object.fromEntries(
-      (db.query("SELECT key, value FROM settings").all() as { key: string; value: string }[]).map((r) => [r.key, JSON.parse(r.value)]),
-    );
-    expect(settings).toEqual({ rpAssignment: `profile:${profiles[0]!.id}`, oocAssignment: `profile:${profiles[0]!.id}` });
     db.close();
   });
 

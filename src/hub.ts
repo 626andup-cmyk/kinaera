@@ -4,8 +4,8 @@
  *
  * A **friend** is a whole Kinaera of their own: their own database and
  * folder, so their own notebook (and secrets), settings and prompts,
- * channels and messages, summaries, idea drawer, heartbeat, reference
- * library, custom emojis and logs. Nothing one friend knows can reach
+ * channels and messages, summaries, heartbeat, reference library,
+ * custom emojis and logs. Nothing one friend knows can reach
  * another, because nothing is shared: each is a separate app (`createApp`
  * in src/server.ts), exactly as Kinaera was with one friend.
  *
@@ -22,8 +22,7 @@
  *   anything else            the first friend's app (the web app's files,
  *                            themes, and the API for older pages)
  *
- * The very first friend lives in the data folder itself (where Kinaera
- * always kept its database), so upgrading changes nothing. New friends
+ * The very first friend lives in the data folder itself. New friends
  * live in `<dataDir>/friends/<id>/`. Your own themes are shared by
  * everyone (`<dataDir>/themes`). A new friend starts with a copy of your
  * connection profiles, roulettes and preferences (models, Jev, reaching
@@ -153,7 +152,6 @@ export function createHub(config: Config, makeApp: (config: Config) => App = cre
   function stopApp(app: App): void {
     app.heartbeat.stop();
     app.summarizer.stop();
-    app.keeper.stop();
     app.store.close();
   }
 
@@ -239,7 +237,7 @@ export function createHub(config: Config, makeApp: (config: Config) => App = cre
     mkdirSync(trash, { recursive: true });
     if (friend.dir === ".") {
       // The first friend lives in the data folder itself: move just their files.
-      for (const name of ["kinaera.db", "kinaera.db-wal", "kinaera.db-shm", "emojis", "chat.json"]) {
+      for (const name of ["kinaera.db", "kinaera.db-wal", "kinaera.db-shm", "emojis"]) {
         if (existsSync(join(root, name))) renameSync(join(root, name), join(trash, name));
       }
     } else {

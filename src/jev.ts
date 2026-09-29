@@ -1,14 +1,14 @@
 /**
- * Jev: the fast decision model (stage 8), borrowed from Kitsikai.
+ * Jev: the fast decision model, borrowed from Kitsikai.
  *
- * Kinaera makes small yes/no calls: would reaching out now feel natural?
- * Did the story just establish something the notebook should remember? Is
- * this idea worth sharing? A chat model *could* answer those, but it's
- * slow, costly, and answers in words that then have to be read. **Jev** ([TypeSafe](https://typesafe.ai), on
- * nanoGPT) is built for exactly this: you give it some **state** (what's
- * going on, as text) and some **questions** with fixed options, and it
- * returns, for each question, the option it picks and a **probability** for
- * every option. It never writes words, and can't read images.
+ * In Kinaera, Jev never decides anything on your friend's behalf. It's an
+ * instrument: it powers `check` (src/check.ts), your friend's sonar for
+ * whether something is true or present in their world. **Jev**
+ * ([TypeSafe](https://typesafe.ai), on nanoGPT) is built for small reads
+ * like that: you give it some **state** (what's going on, as text) and some
+ * **questions** with fixed options, and it returns, for each question, the
+ * option it picks and a **probability** for every option. It never writes
+ * words, and can't read images.
  *
  *   state:     "Newest message: 'ugh my head is killing me' ..."
  *   question:  "Did they say they had a headache?"  options: yes, no
@@ -16,9 +16,10 @@
  *
  * "Can't hallucinate" means its answers are never malformed (always one of
  * the options), **not** that they're never wrong. So every answer is read in
- * three tiers (`tier`): **confident yes**, **confident no**, or **unsure**,
- * and unsure always takes the safe path (don't text, don't touch the
- * notebook). The line between them is the confidence setting (default 0.8).
+ * three tiers (`tier`): **confident yes**, **confident no**, or **unsure**.
+ * The line between them is the confidence setting (default 0.8). A check
+ * always returns the evidence alongside Jev's reading, so your friend can
+ * judge for themselves.
  *
  * ## The request
  *
@@ -35,7 +36,7 @@
  * can be set: a normal connection profile that's asked the same questions
  * and told to answer in JSON with a probability (`askProfile`). It's slower
  * and less calibrated, but keeps everything working. Without one, a failed
- * Jev call just means that decision is skipped this time.
+ * Jev call just means that reading is missing this time.
  *
  * ## The Jev log
  *
@@ -315,7 +316,7 @@ export interface DeciderSettings {
 export interface AskOptions {
   /** Stops the call. */
   signal?: AbortSignal;
-  /** What's asking, for the Jev log: "Wake-up", "Notebook keeper"... */
+  /** What's asking, for the Jev log: "Test Jev", "Check"... */
   purpose?: string;
 }
 

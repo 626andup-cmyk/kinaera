@@ -1,5 +1,5 @@
 /**
- * Tests for the notebook (src/notebook.ts) and sheet parsing (src/sheets.ts):
+ * Tests for the notebook (src/notebook.ts) and the example character:
  * entries, folders, suggestions, pins, and what reaches your friend's
  * prompt, each checked from both your side and your friend's.
  */
@@ -8,8 +8,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { PermissionError, NotFoundError, ValidationError } from "../src/errors.ts";
 import { linkedNames, type Notebook } from "../src/notebook.ts";
 import { HIDDEN_NAME } from "../src/permissions.ts";
-import { parseSheet } from "../src/sheets.ts";
-import { Store } from "../src/store.ts";
+import { defaultCharacter, Store } from "../src/store.ts";
 import { tempDir } from "./helpers.ts";
 
 let dir: ReturnType<typeof tempDir>;
@@ -330,29 +329,12 @@ describe("linkedNames", () => {
   });
 });
 
-describe("parseSheet", () => {
-  test("reads labelled lines into fields, taking out the name", () => {
-    expect(parseSheet("Name: Ilse Marrow\nAge: 34\nAppearance: Tall,\nwind-weathered.")).toEqual({
-      name: "Ilse Marrow",
-      fields: [
-        { label: "Age", value: "34" },
-        { label: "Appearance", value: "Tall,\nwind-weathered." },
-      ],
-    });
-  });
-
-  test("keeps text before the first label, or after the name, as Notes", () => {
-    expect(parseSheet("A smuggler.\nAge: 40")).toEqual({
-      name: null,
-      fields: [
-        { label: "Notes", value: "A smuggler." },
-        { label: "Age", value: "40" },
-      ],
-    });
-    expect(parseSheet("Name: Vee\nA getaway driver.").fields).toEqual([{ label: "Notes", value: "A getaway driver." }]);
-  });
-
-  test("keeps paragraph breaks inside a field, and drops empty fields", () => {
-    expect(parseSheet("Background: One.\n\nTwo.\n\n\n\nSpeech:").fields).toEqual([{ label: "Background", value: "One.\n\nTwo." }]);
+describe("the example character", () => {
+  test("is read from defaults/character.md, one labelled line per field", () => {
+    const character = defaultCharacter();
+    expect(character.name).toBe("Ilse Marrow");
+    expect(character.fields[0]).toEqual({ label: "Age", value: "34" });
+    expect(character.fields.map((f) => f.label)).toContain("Speech");
+    expect(character.fields.some((f) => f.label === "Name")).toBe(false);
   });
 });

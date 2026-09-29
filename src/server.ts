@@ -17,10 +17,8 @@
  *   GET    /api/wakeups                        Recent wake-ups, and what came of them
  *   POST   /api/friend/random                 "Surprise me": a new friend's name and prompt, from random ingredients
  *   POST   /api/presence                       The app is (or isn't) on screen: {visible}
- *   POST   /api/heartbeat                      Beat now: ideas, graded, and maybe a message
- *   GET    /api/ideas                          The idea drawer
- *   DELETE /api/ideas/:id                      Forget an idea
- *   POST   /api/jev/test                       Ask Jev one tiny question, to see if it's reachable and understood
+ *   POST   /api/heartbeat                      Beat now: a free moment for your friend, if the rules allow
+ *   POST   /api/jev/test                      Ask Jev one tiny question, to see if it's reachable and understood
  *   GET    /api/jev/log                        Every Jev call from the last 36 hours, exactly as sent and received
  *
  *   POST   /api/messages/:id/reactions         Add your emoji reaction to a message, or take it back
@@ -71,7 +69,7 @@
  *
  *   PATCH  /api/messages/:id                   Edit a message's text
  *   DELETE /api/messages/:id                   Delete one message
- *   POST   /api/messages/:id/comments          Comment on a message (your friend replies if it's theirs)
+ *   POST   /api/messages/:id/comments          Comment on a message (your friend may reply)
  *   POST   /api/comments/:id/replies           Reply in a comment thread
  *   POST   /api/comments/:id/resolve           Resolve or reopen a thread
  *   DELETE /api/comments/:id                   Delete one of your comments
@@ -125,8 +123,6 @@ import { Summarizer } from "./summarizer.ts";
 import { Decider, testJev } from "./jev.ts";
 import { JEV_LOG_HOURS } from "./jevlog.ts";
 import { FRESH_SCENE_MINUTES, Wakeups } from "./wakeups.ts";
-import { Keeper } from "./keeper.ts";
-import { Judge } from "./judge.ts";
 import { Heartbeat } from "./heartbeat.ts";
 import { describeSeeds, randomFriend, rollSeeds } from "./rng.ts";
 import { keepAwake, Presence, TermuxNotifier, type Notifier } from "./notify.ts";
@@ -171,15 +167,11 @@ export interface App {
   themes: ThemeLibrary;
   /** Writes summaries in the background (stage 7). */
   summarizer: Summarizer;
-  /** Asks Jev, the decision model (stage 8). */
+  /** Asks Jev, the small decision model (only `check` uses it). */
   decider: Decider;
-  /** Decides whether your friend wakes up, and wakes them (stage 8). */
+  /** Checks the hard rules, and gives your friend turns of their own. */
   wakeups: Wakeups;
-  /** Notes what the story establishes in the notebook, between turns. */
-  keeper: Keeper;
-  /** Jev's double-checks on the guesses Kinaera makes (src/judge.ts). */
-  judge: Judge;
-  /** Your friend reaching out out of nowhere, with ideas (src/heartbeat.ts). */
+  /** A timer that gives your friend free moments (src/heartbeat.ts). */
   heartbeat: Heartbeat;
   /** Whether the app is on screen, as it last said (for notifications). */
   presence: Presence;
@@ -274,10 +266,8 @@ export function createApp(config: Config): App {
     },
     (call) => store.jevLog.add(call, new Date()),
   );
-  const wakeups = new Wakeups(store, friend, decider, Boolean(config.apiKey));
-  const keeper = new Keeper(store, api, decider, config.keeperDelayMs);
-  const judge = new Judge(store, decider);
-  const heartbeat = new Heartbeat(store, api, decider, wakeups);
+  const wakeups = new Wakeups(store, friend, Boolean(config.apiKey));
+  const heartbeat = new Heartbeat(store, wakeups);
   const presence = new Presence();
   const notifier = config.notifier ?? new TermuxNotifier(`http://127.0.0.1:${config.port}`);
   // A wake-up (or heartbeat) wrote to you while the app isn't on screen: a
@@ -287,8 +277,6 @@ export function createApp(config: Config): App {
     const text = messages.map((m) => m.content).join("\n");
     notifier.notify({ title: `${store.getSettings().friendName} in #${channel.name}`, text, channelId: channel.id, friendId: config.friendId });
   };
-  friend.judge = judge;
-  summarizer.judge = judge;
   const autoWake = config.autoWake ?? true;
 
   /**
@@ -344,19 +332,12 @@ export function createApp(config: Config): App {
   }
 
   /**
-   * After you comment: if the thread is on your friend's message, or
-   * they're already in it, they reply. The reply is reported as data: if it
-   * fails, your comment is still saved.
+   * After you comment, your friend gets a turn to reply in the thread. On
+   * your own message, the comment may be a note for yourself: they can
+   * leave it (their call, not a rule's). The reply is reported as data: if
+   * it fails, your comment is still saved.
    */
   async function commentReply(threadId: string) {
-    const thread = store.comments.thread(threadId);
-    const message = store.getMessage(thread.messageId);
-    const involved = message.author === "friend" || thread.comments.some((c) => c.author === "friend");
-    // On your own message, in a thread they're not in: Jev decides whether
-    // your comment invites their reply (src/judge.ts).
-    const invited =
-      !involved && (await judge.wantsReply(thread.quote, thread.comments.at(-1)?.note ?? "", message.content));
-    if (!involved && !invited) return { thread };
     const reply = await tryTurn(() => friend.replyToComment(threadId));
     return { thread: store.comments.thread(threadId), ...reply };
   }
@@ -514,20 +495,7 @@ export function createApp(config: Config): App {
       // Settings → "Beat now": a heartbeat straight away, whatever the time.
       method: "POST",
       pattern: "/api/heartbeat",
-      handler: async () => json({ beat: await heartbeat.tick(true), ideas: store.ideas.list() }),
-    },
-    {
-      method: "GET",
-      pattern: "/api/ideas",
-      handler: () => json({ ideas: store.ideas.list() }),
-    },
-    {
-      method: "DELETE",
-      pattern: "/api/ideas/:id",
-      handler: (_request, { id }) => {
-        store.ideas.remove(id!);
-        return json({ ideas: store.ideas.list() });
-      },
+      handler: async () => json({ beat: await heartbeat.tick(true) }),
     },
     {
       method: "GET",
@@ -563,7 +531,7 @@ export function createApp(config: Config): App {
         if (update.summaries || update.summaryEvery || update.historyLimit) summarizer.scheduleAll();
         // The heartbeat's pace changed: start counting again from now.
         if (update.heartbeatHours !== undefined) {
-          store.appState.set("heartbeat.next", null);
+          heartbeat.reset();
           if (update.heartbeatHours > 0) keepAwake();
         }
         return json({ settings });
@@ -1244,7 +1212,7 @@ export function createApp(config: Config): App {
     }
   }
 
-  return { fetch, store, friend, themes, summarizer, decider, wakeups, keeper, judge, heartbeat, presence, notifier };
+  return { fetch, store, friend, themes, summarizer, decider, wakeups, heartbeat, presence, notifier };
 }
 
 /**

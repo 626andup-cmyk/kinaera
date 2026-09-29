@@ -2524,8 +2524,6 @@ function openSettings() {
   form.decisionModel.value = s.decisionModel;
   form.decisionConfidence.value = s.decisionConfidence;
   fillFallbackSelect(form.decisionFallback, s.decisionFallback);
-  form.notebookKeeper.checked = s.notebookKeeper;
-  form.jevChecks.checked = s.jevChecks;
   form.heartbeatHours.value = String(s.heartbeatHours);
   // A custom value (set some other way) still shows.
   if (form.heartbeatHours.value !== String(s.heartbeatHours)) {
@@ -2533,8 +2531,7 @@ function openSettings() {
     form.heartbeatHours.value = String(s.heartbeatHours);
   }
   renderHeartbeatStatus();
-  loadIdeas();
-  form.keeperEvery.value = s.keeperEvery;
+  $("beat-result").textContent = "";
   $("test-jev-result").textContent = "";
   updateWakeupsOnly();
   loadWakeLog();
@@ -2564,10 +2561,7 @@ async function saveSettings(event) {
       decisionModel: form.decisionModel.value,
       decisionConfidence: Number(form.decisionConfidence.value),
       decisionFallback: form.decisionFallback.value,
-      notebookKeeper: form.notebookKeeper.checked,
-      jevChecks: form.jevChecks.checked,
       heartbeatHours: Number(form.heartbeatHours.value),
-      keeperEvery: Number(form.keeperEvery.value),
     });
     state.settings = data.settings;
     els.settingsDialog.close();
@@ -2579,7 +2573,7 @@ async function saveSettings(event) {
 
 /** Only profiles (a fallback for Jev can't be a roulette), with "Nobody" first. */
 function fillFallbackSelect(select, value) {
-  select.replaceChildren(new Option("Nobody: skip that decision", ""), ...state.profiles.map((p) => new Option(p.name, `profile:${p.id}`)));
+  select.replaceChildren(new Option("Nobody", ""), ...state.profiles.map((p) => new Option(p.name, `profile:${p.id}`)));
   select.value = value || "";
   if (select.selectedIndex < 0) select.selectedIndex = 0;
 }
@@ -2597,7 +2591,7 @@ const WAKE_REASONS = {
   review: "A suggestion to review",
   heartbeat: "Heartbeat",
 };
-const WAKE_OUTCOMES = { posted: "wrote to you", quiet: "didn't write", declined: "not the moment", failed: "failed" };
+const WAKE_OUTCOMES = { posted: "wrote to you", quiet: "didn't write", failed: "failed" };
 
 /** Settings → Your friend reaching out → Recent wake-ups. */
 /** Whether phone notifications work here, and when the next heartbeat is. */
@@ -2611,63 +2605,15 @@ function renderHeartbeatStatus() {
   $("heartbeat-status").textContent = parts.join(" ");
 }
 
-const IDEA_STATUS = { drawer: "saved", shared: "shared", dropped: "dropped" };
-
-/** The idea drawer, newest first. */
-async function loadIdeas() {
-  const list = $("idea-list");
-  try {
-    const { ideas } = await api("GET", "/api/ideas");
-    renderIdeas(ideas);
-  } catch {
-    list.replaceChildren();
-  }
-}
-
-function renderIdeas(ideas) {
-  const list = $("idea-list");
-  if (ideas.length === 0) {
-    const empty = document.createElement("li");
-    empty.className = "hint";
-    empty.textContent = "No ideas yet.";
-    list.replaceChildren(empty);
-    return;
-  }
-  list.replaceChildren(
-    ...ideas.map((idea) => {
-      const item = document.createElement("li");
-      item.dataset.outcome = idea.status === "shared" ? "posted" : idea.status === "dropped" ? "declined" : "quiet";
-      const head = document.createElement("div");
-      head.append(badge(IDEA_STATUS[idea.status]), badge(idea.kind), badge(`${Math.round(idea.grade * 100)}%`));
-      const text = document.createElement("div");
-      text.textContent = idea.content;
-      const note = document.createElement("div");
-      note.className = "hint";
-      note.textContent = idea.note;
-      const forget = document.createElement("button");
-      forget.type = "button";
-      forget.className = "link-button";
-      forget.textContent = "Forget";
-      forget.addEventListener("click", async () => {
-        const data = await api("DELETE", `/api/ideas/${encodeURIComponent(idea.id)}`, {});
-        renderIdeas(data.ideas);
-      });
-      item.append(head, text, note, forget);
-      return item;
-    }),
-  );
-}
-
 /** Settings → "Beat now": a heartbeat straight away. */
 async function beatNow() {
   const result = $("beat-result");
   const button = $("beat-now");
   button.disabled = true;
-  result.textContent = "Thinking of ideas…";
+  result.textContent = "Beating…";
   try {
-    const { beat, ideas } = await api("POST", "/api/heartbeat", {});
+    const { beat } = await api("POST", "/api/heartbeat", {});
     result.textContent = beat.detail;
-    renderIdeas(ideas);
     loadWakeLog();
     checkLive();
   } catch (error) {
@@ -4153,7 +4099,6 @@ function renderToolCall(call) {
   name.textContent = call.name;
   head.append(name, badge(call.status === "ok" ? "ok" : "error"));
   if (call.source === "text") head.append(badge("written as text"));
-  if (call.source === "keeper") head.append(badge("notebook keeper"));
   head.append(badge(`round ${call.round + 1}`));
   if (call.profile) head.append(badge(call.profile));
   const time = document.createElement("time");

@@ -121,10 +121,6 @@ export interface WakeContext {
   waiting: string[];
   /** For "scene-ended": the scene that just ended, and its summary if it has one yet. */
   scene?: { channel: string; title: string; summary: string | null };
-  /** Ideas your friend saved for later (the idea drawer), to bring up if one fits now. */
-  ideas?: string[];
-  /** An idea your friend decided to share (the heartbeat's generate-and-grade). */
-  idea?: string;
 }
 
 /**
@@ -199,12 +195,6 @@ export function describeWake(wake: WakeContext, tools: boolean): string {
     );
   }
   if (wake.waiting.length > 0) parts.push(["Waiting:", ...wake.waiting.map((line) => `- ${line}`)].join("\n"));
-  if (wake.idea) parts.push(`You had an idea you're excited to share: ${wake.idea}`);
-  if (wake.ideas?.length) {
-    parts.push(
-      ["Ideas you've been saving for the right moment (bring one up only if it fits now):", ...wake.ideas.map((i) => `- ${i}`)].join("\n"),
-    );
-  }
   parts.push(
     `Reach out only if you genuinely want to: a thought, a question, a reaction, an idea for a story. Keep it short and natural, like a text from a friend, and don't pretend they said something they didn't. If there's nothing worth saying, don't write: ${
       tools ? "call do_nothing (you can still act with your tools first)" : `reply with exactly ${NOTHING}`
@@ -452,7 +442,7 @@ export function buildPromptStack({
   const last = history.at(-1);
   if (replyingTo) {
     // A reply to a comment: whatever came last, ask for the reply.
-    history.push({ role: "user", content: commentNudge(replyingTo) });
+    history.push({ role: "user", content: commentNudge(replyingTo, tools ?? false) });
   } else if (wake) {
     // A wake-up: a turn on their own, whatever came last.
     if (last?.role === "user") last.content += `\n\n${wakeNudge(tools ?? false)}`;
@@ -515,11 +505,18 @@ export function toolGuidance(kind: ChannelKind): string {
   ).join("\n");
 }
 
-/** The last message of a comment-reply turn. */
-export function commentNudge(comment: NonNullable<PromptInput["replyingTo"]>): string {
+/**
+ * The last message of a comment-reply turn. A comment on the user's own
+ * message may be a note they left for themselves: whether it's for your
+ * friend is their call, and leaving it is fine.
+ */
+export function commentNudge(comment: NonNullable<PromptInput["replyingTo"]>, tools = false): string {
   const where = comment.onYourMessage ? "your message" : "their own message";
   const quote = comment.quote ? ` on "${comment.quote}"` : "";
-  return `(OOC: The user left a comment on ${where}${quote}: "${comment.note}". Reply to their comment as yourself, out of character, in one to three sentences. Don't continue the story or write a post. Your reply goes in the comment thread.)`;
+  const leave = comment.onYourMessage
+    ? ""
+    : ` If it reads like a note they left for themselves rather than something for you, you can leave it: ${tools ? "call do_nothing" : `reply with exactly ${NOTHING}`}.`;
+  return `(OOC: The user left a comment on ${where}${quote}: "${comment.note}". Reply to their comment as yourself, out of character, in one to three sentences. Don't continue the story or write a post. Your reply goes in the comment thread.${leave})`;
 }
 
 /**

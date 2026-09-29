@@ -8,7 +8,7 @@
  * same way src/toolcalls.ts forgives broken tool arguments.
  *
  * (Jev, the decision model, never needs this: its answers are typed by
- * design. This is for the fallback profile and the notebook keeper's writer.)
+ * design. This is for the fallback profile, and anything else asked to reply in JSON.)
  */
 
 import { stripReasoning } from "./nanogpt.ts";

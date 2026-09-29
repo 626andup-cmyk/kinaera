@@ -21,7 +21,6 @@
  */
 
 import { Database } from "bun:sqlite";
-import { parseSheet } from "./sheets.ts";
 
 /**
  * Every change ever made to the database layout, oldest first.
@@ -36,106 +35,108 @@ import { parseSheet } from "./sheets.ts";
  * ran it won't run it again. Add a new one to the end instead.
  *
  * Most steps are SQL. A step can also be a function, for moving data around
- * in ways that are easier to write in TypeScript (see step 4).
+ * in ways that are easier to write in TypeScript.
+ *
+ * Kinaera starts from Aettica's final layout, folded into one first step
+ * (Aettica's own upgrade steps were for Aettica's data, which Kinaera
+ * doesn't open; the importer reads it instead).
  */
 export type Migration = string | ((db: Database) => void);
 
 export const MIGRATIONS: Migration[] = [
   // ---------------------------------------------------------------- 1
-  // Stage 2: settings, channels, messages, and the characters each message
-  // voices.
-  `
-  -- Server-wide settings as key/value pairs. Each value is stored as JSON,
-  -- so numbers stay numbers and text stays text.
-  CREATE TABLE settings (
-    key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-  );
-
-  CREATE TABLE channels (
-    id              TEXT PRIMARY KEY,
-    name            TEXT NOT NULL,
-    -- CHECK makes the database itself refuse any other value.
-    kind            TEXT NOT NULL CHECK (kind IN ('rp', 'ooc')),
-    position        INTEGER NOT NULL,
-    character_name  TEXT NOT NULL DEFAULT '',
-    character_sheet TEXT NOT NULL DEFAULT '',
-    created_at      TEXT NOT NULL
-  );
-
-  CREATE TABLE messages (
-    -- seq counts up by one for every message ever saved, so ordering by it
-    -- gives the order messages were written in.
-    seq        INTEGER PRIMARY KEY AUTOINCREMENT,
-    id         TEXT NOT NULL UNIQUE,
-    -- REFERENCES ties each message to a real channel. ON DELETE CASCADE
-    -- means deleting a channel deletes its messages too, instead of leaving
-    -- orphans behind.
-    channel_id TEXT NOT NULL REFERENCES channels (id) ON DELETE CASCADE,
-    author     TEXT NOT NULL CHECK (author IN ('user', 'friend')),
-    content    TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    edited_at  TEXT,
-    model      TEXT
-  );
-
-  -- An index is like the index at the back of a book: it lets SQLite jump
-  -- straight to one channel's messages instead of reading every message.
-  CREATE INDEX messages_by_channel ON messages (channel_id, seq);
-
-  -- Which character(s) each message voices. One row per character, so a
-  -- message can voice none, one or several. Stage 4 will point these at
-  -- notebook entries instead of plain names.
-  CREATE TABLE message_characters (
-    message_id     TEXT NOT NULL REFERENCES messages (id) ON DELETE CASCADE,
-    character_name TEXT NOT NULL,
-    -- Keeps the characters in the order they were given.
-    position       INTEGER NOT NULL,
-    PRIMARY KEY (message_id, character_name)
-  );
-  `,
-
-  // ---------------------------------------------------------------- 2
-  // Stage 3: channel modes (literary/casual), scene breaks, and turns.
-  //
-  // ALTER TABLE ... ADD COLUMN adds a column to an existing table. Every
-  // existing row gets the DEFAULT value, so old data stays valid.
-  `
-  -- The mode of each channel's current scene, and a change waiting for the
-  -- next scene break (NULL when none is waiting).
-  ALTER TABLE channels ADD COLUMN mode TEXT NOT NULL DEFAULT 'literary'
-    CHECK (mode IN ('literary', 'casual'));
-  ALTER TABLE channels ADD COLUMN pending_mode TEXT
-    CHECK (pending_mode IN ('literary', 'casual'));
-
-  -- Scene breaks are rows in the messages table, so they stay in order with
-  -- the messages around them. For a scene break, content is its title.
-  ALTER TABLE messages ADD COLUMN kind TEXT NOT NULL DEFAULT 'post'
-    CHECK (kind IN ('post', 'scene_break'));
-
-  -- The mode each message was written in (NULL outside RP channels).
-  ALTER TABLE messages ADD COLUMN mode TEXT
-    CHECK (mode IN ('literary', 'casual'));
-
-  -- Messages written together (one casual reply's bubbles) share a turn id.
-  ALTER TABLE messages ADD COLUMN turn_id TEXT;
-
-  -- Everything written in RP channels so far was literary.
-  UPDATE messages SET mode = 'literary'
-   WHERE channel_id IN (SELECT id FROM channels WHERE kind = 'rp');
-  `,
-
-  // ---------------------------------------------------------------- 3
-  // Stage 3.5: each channel can have its own theme (NULL: the app theme).
-  // Themes themselves are folders, not rows; see src/themes.ts.
-  `
-  ALTER TABLE channels ADD COLUMN theme TEXT;
-  `,
-
-  // ---------------------------------------------------------------- 4
-  // Stage 4: the notebook, and the cast of each channel.
+  // The starting layout.
   (db) => {
     db.exec(`
+    -- Server-wide settings as key/value pairs. Each value is stored as JSON,
+    -- so numbers stay numbers and text stays text.
+    CREATE TABLE settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
+    -- Small values kept between runs, like when the next heartbeat is due.
+    CREATE TABLE app_state (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
+    -- ------------------------------------------------ channels and messages
+
+    -- Named, collapsible groups of channels in the sidebar.
+    CREATE TABLE categories (
+      id         TEXT PRIMARY KEY,
+      name       TEXT NOT NULL,
+      -- Where it sits among the categories: 0 is the top. Channels outside
+      -- any category are listed above all of them.
+      position   INTEGER NOT NULL,
+      -- 1 when folded up in the sidebar.
+      collapsed  INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE channels (
+      id           TEXT PRIMARY KEY,
+      name         TEXT NOT NULL,
+      -- CHECK makes the database itself refuse any other value.
+      kind         TEXT NOT NULL CHECK (kind IN ('rp', 'ooc')),
+      position     INTEGER NOT NULL,
+      -- The mode of the current scene, and a change waiting for the next
+      -- scene break (NULL when none is waiting).
+      mode         TEXT NOT NULL DEFAULT 'literary' CHECK (mode IN ('literary', 'casual')),
+      pending_mode TEXT CHECK (pending_mode IN ('literary', 'casual')),
+      -- The channel's own theme (NULL: the app theme). Themes themselves are
+      -- folders, not rows; see src/themes.ts.
+      theme        TEXT,
+      -- The channel's own profile or roulette ("profile:<id>" or
+      -- "roulette:<id>"), overriding the server-wide one. NULL: no override.
+      assignment   TEXT,
+      -- Deleting a category leaves its channels, outside any category.
+      category_id  TEXT REFERENCES categories (id) ON DELETE SET NULL,
+      created_at   TEXT NOT NULL
+    );
+
+    CREATE TABLE messages (
+      -- seq counts up by one for every message ever saved, so ordering by it
+      -- gives the order messages were written in.
+      seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+      id         TEXT NOT NULL UNIQUE,
+      -- REFERENCES ties each message to a real channel. ON DELETE CASCADE
+      -- means deleting a channel deletes its messages too, instead of leaving
+      -- orphans behind.
+      channel_id TEXT NOT NULL REFERENCES channels (id) ON DELETE CASCADE,
+      -- Scene breaks are rows here too, so they stay in order with the
+      -- messages around them. For a scene break, content is its title.
+      kind       TEXT NOT NULL DEFAULT 'post' CHECK (kind IN ('post', 'scene_break')),
+      -- The mode each message was written in (NULL outside RP channels).
+      mode       TEXT CHECK (mode IN ('literary', 'casual')),
+      -- Messages written together (one casual reply's bubbles) share a turn id.
+      turn_id    TEXT,
+      author     TEXT NOT NULL CHECK (author IN ('user', 'friend')),
+      content    TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      edited_at  TEXT,
+      model      TEXT,
+      -- The name of the profile that wrote each friend message.
+      profile    TEXT
+    );
+
+    -- An index is like the index at the back of a book: it lets SQLite jump
+    -- straight to one channel's messages instead of reading every message.
+    CREATE INDEX messages_by_channel ON messages (channel_id, seq);
+
+    -- Which character(s) each message voices. One row per character, so a
+    -- message can voice none, one or several.
+    CREATE TABLE message_characters (
+      message_id     TEXT NOT NULL REFERENCES messages (id) ON DELETE CASCADE,
+      character_name TEXT NOT NULL,
+      -- Keeps the characters in the order they were given.
+      position       INTEGER NOT NULL,
+      PRIMARY KEY (message_id, character_name)
+    );
+
+    -- ------------------------------------------------------------ notebook
+
     -- Folders group entries, and pass their visibility and editing settings
     -- down to them.
     CREATE TABLE notebook_folders (
@@ -188,64 +189,17 @@ export const MIGRATIONS: Migration[] = [
       created_at  TEXT NOT NULL,
       resolved_at TEXT
     );
-    `);
 
-    const now = new Date().toISOString();
-    const insertEntry = db.query(
-      `INSERT INTO notebook_entries (id, kind, name, fields, proxy_prefix, owner, created_at, updated_at)
-       VALUES ($id, 'character', $name, $fields, $prefix, $owner, $now, $now)`,
-    );
-    const pin = db.query(
-      "INSERT OR IGNORE INTO channel_cast (channel_id, entry_id, position) VALUES ($channel, $entry, $position)",
+    -- Notebook entries you attached to a message, so they're sent to your
+    -- friend in full while that message is in the conversation.
+    CREATE TABLE message_attachments (
+      message_id TEXT NOT NULL REFERENCES messages (id) ON DELETE CASCADE,
+      entry_id   TEXT NOT NULL REFERENCES notebook_entries (id) ON DELETE CASCADE,
+      PRIMARY KEY (message_id, entry_id)
     );
 
-    // Each RP channel's character becomes an entry of your friend's, pinned
-    // to that channel. Identical characters in several channels become one
-    // entry pinned to each.
-    const rpChannels = db
-      .query("SELECT id, name, character_name, character_sheet FROM channels WHERE kind = 'rp' ORDER BY position")
-      .all() as { id: string; name: string; character_name: string; character_sheet: string }[];
-    const made = new Map<string, string>(); // name + sheet -> entry id
-    for (const channel of rpChannels) {
-      if (!channel.character_name.trim() && !channel.character_sheet.trim()) continue;
-      const key = `${channel.character_name}\n${channel.character_sheet}`;
-      let entryId = made.get(key);
-      if (!entryId) {
-        const sheet = parseSheet(channel.character_sheet);
-        entryId = crypto.randomUUID();
-        insertEntry.run({
-          id: entryId,
-          name: channel.character_name.trim() || sheet.name || `${channel.name} character`,
-          fields: JSON.stringify(sheet.fields),
-          prefix: null,
-          owner: "friend",
-          now,
-        });
-        made.set(key, entryId);
-      }
-      pin.run({ channel: channel.id, entry: entryId, position: 0 });
-    }
+    -- ------------------------------------------- profiles and roulettes
 
-    // Your casual characters (a list in settings until now) become entries
-    // of yours, keeping their proxy prefixes, pinned to every RP channel.
-    const saved = db.query("SELECT value FROM settings WHERE key = 'userCharacters'").get() as { value: string } | null;
-    const yours = saved ? (JSON.parse(saved.value) as { name: string; prefix: string }[]) : [];
-    yours.forEach((character, index) => {
-      const entryId = crypto.randomUUID();
-      insertEntry.run({ id: entryId, name: character.name, fields: "[]", prefix: character.prefix, owner: "user", now });
-      for (const channel of rpChannels) pin.run({ channel: channel.id, entry: entryId, position: index + 1 });
-    });
-    db.exec("DELETE FROM settings WHERE key = 'userCharacters'");
-
-    // The old per-channel character columns are no longer used.
-    db.exec("ALTER TABLE channels DROP COLUMN character_name");
-    db.exec("ALTER TABLE channels DROP COLUMN character_sheet");
-  },
-
-  // ---------------------------------------------------------------- 5
-  // Stage 5: connection profiles and roulettes.
-  (db) => {
-    db.exec(`
     -- A connection profile: one model and its settings (see src/profiles.ts).
     CREATE TABLE profiles (
       id               TEXT PRIMARY KEY,
@@ -278,307 +232,198 @@ export const MIGRATIONS: Migration[] = [
       PRIMARY KEY (roulette_id, profile_id)
     );
 
-    -- A channel's own profile or roulette ("profile:<id>" or
-    -- "roulette:<id>"), overriding the server-wide one. NULL: no override.
-    ALTER TABLE channels ADD COLUMN assignment TEXT;
+    -- ------------------------------------------ tools, comments, proposals
 
-    -- The name of the profile that wrote each friend message.
-    ALTER TABLE messages ADD COLUMN profile TEXT;
+    -- Every tool call your friend makes, kept for the activity shown under
+    -- their messages and for troubleshooting (see src/friend.ts).
+    CREATE TABLE tool_calls (
+      id         TEXT PRIMARY KEY,
+      channel_id TEXT NOT NULL REFERENCES channels (id) ON DELETE CASCADE,
+      -- The turn the call belongs to: the same id as the messages it wrote.
+      turn_id    TEXT NOT NULL,
+      -- Which round of the turn: a model can call tools, see the results,
+      -- and call more.
+      round      INTEGER NOT NULL,
+      name       TEXT NOT NULL,
+      -- The arguments exactly as the model wrote them, even if broken.
+      arguments  TEXT NOT NULL,
+      -- What was sent back to the model, as JSON.
+      result     TEXT NOT NULL,
+      status     TEXT NOT NULL CHECK (status IN ('ok', 'error')),
+      -- A short description for people, e.g. "pinned Tamsin to #story".
+      summary    TEXT NOT NULL DEFAULT '',
+      -- 'native' if the API returned it as a tool call, 'text' if it was
+      -- found written out in the reply (some models do that).
+      source     TEXT NOT NULL CHECK (source IN ('native', 'text')),
+      profile    TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX tool_calls_by_channel ON tool_calls (channel_id, created_at);
+
+    -- Comments on messages, in threads. The first comment of a thread has
+    -- thread_id = its own id, and holds the highlighted text and whether the
+    -- thread is resolved.
+    CREATE TABLE comments (
+      id         TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL REFERENCES messages (id) ON DELETE CASCADE,
+      thread_id  TEXT NOT NULL,
+      author     TEXT NOT NULL CHECK (author IN ('user', 'friend')),
+      quote      TEXT NOT NULL DEFAULT '',
+      note       TEXT NOT NULL,
+      resolved   INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX comments_by_message ON comments (message_id);
+
+    -- Things your friend asks you to approve that aren't notebook changes
+    -- (those are suggestions): for now, deleting a channel.
+    CREATE TABLE proposals (
+      id          TEXT PRIMARY KEY,
+      kind        TEXT NOT NULL CHECK (kind IN ('delete_channel')),
+      target_id   TEXT NOT NULL,
+      -- The target's name when proposed, so the card still makes sense later.
+      target_name TEXT NOT NULL,
+      reason      TEXT NOT NULL DEFAULT '',
+      status      TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'denied')),
+      created_at  TEXT NOT NULL,
+      resolved_at TEXT
+    );
+
+    -- ------------------------------------------------------------ summaries
+
+    -- So long stories fit in the context (see src/summaries.ts).
+    CREATE TABLE summaries (
+      channel_id  TEXT NOT NULL REFERENCES channels (id) ON DELETE CASCADE,
+      -- 'scene':   one finished scene, ended by the scene break scene_id.
+      -- 'story':   the story so far: every finished scene, folded together.
+      -- 'current': the older part of the scene still going (in OOC, of the
+      --            whole conversation), started by the scene break scene_id
+      --            ('' for the channel's first scene).
+      -- 'digest':  one or two lines about the channel, for OOC.
+      kind        TEXT NOT NULL CHECK (kind IN ('scene', 'story', 'current', 'digest')),
+      scene_id    TEXT NOT NULL DEFAULT '',
+      content     TEXT NOT NULL,
+      -- The newest message (its seq) the summary covers.
+      through_seq INTEGER NOT NULL DEFAULT 0,
+      -- 1 when messages it covers were edited or deleted: it's rewritten.
+      stale       INTEGER NOT NULL DEFAULT 0,
+      -- 1 when you wrote or edited it: it's kept as you left it.
+      edited      INTEGER NOT NULL DEFAULT 0,
+      updated_at  TEXT NOT NULL,
+      PRIMARY KEY (channel_id, kind, scene_id)
+    );
+
+    -- ------------------------------------------------------ logs and Jev
+
+    -- Every call to Jev (src/jevlog.ts), kept for 36 hours.
+    CREATE TABLE jev_log (
+      id          TEXT PRIMARY KEY,
+      at          TEXT NOT NULL,
+      -- What asked: "Test Jev"...
+      purpose     TEXT NOT NULL,
+      model       TEXT NOT NULL,
+      -- The request body sent to Jev, as JSON; NULL if Jev wasn't asked (turned off).
+      request     TEXT,
+      -- Jev's reply, exactly as it came back ('' if there wasn't one).
+      response    TEXT NOT NULL,
+      error       TEXT,
+      -- 'jev', 'fallback', or NULL when nobody answered.
+      answered_by TEXT CHECK (answered_by IN ('jev', 'fallback')),
+      -- The answers in short: "t1: yes (95%), plan: no (90%)".
+      summary     TEXT NOT NULL,
+      -- The fallback profile's request and reply, as JSON, when it was asked.
+      fallback    TEXT,
+      duration_ms INTEGER NOT NULL
+    );
+    CREATE INDEX jev_log_by_time ON jev_log (at);
+
+    -- Each time your friend took a turn on their own, and what came of it
+    -- (src/wakeups.ts).
+    CREATE TABLE wakeups (
+      id         TEXT PRIMARY KEY,
+      at         TEXT NOT NULL,
+      -- What happened: 'opened', 'away', 'scene-ended', 'review', 'heartbeat'.
+      reason     TEXT NOT NULL,
+      -- 'posted' (they wrote), 'quiet' (their turn, but they chose not to
+      -- write), 'failed'.
+      outcome    TEXT NOT NULL CHECK (outcome IN ('posted', 'quiet', 'failed')),
+      channel_id TEXT REFERENCES channels (id) ON DELETE SET NULL,
+      -- Why, in words.
+      detail     TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX wakeups_by_time ON wakeups (at);
+
+    -- ------------------------------------------------ the reference library
+
+    -- Long texts, split into passages, that your friend can search and read
+    -- with tools (src/library.ts).
+    CREATE TABLE library_docs (
+      id          TEXT PRIMARY KEY,
+      title       TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      -- A JSON list of the channels it's limited to; '[]' means everywhere.
+      channel_ids TEXT NOT NULL DEFAULT '[]',
+      chars       INTEGER NOT NULL,
+      passages    INTEGER NOT NULL,
+      created_at  TEXT NOT NULL,
+      updated_at  TEXT NOT NULL
+    );
+
+    -- A page or so of a document each. The rowid ties it to the search index.
+    CREATE TABLE library_passages (
+      rowid    INTEGER PRIMARY KEY,
+      doc_id   TEXT NOT NULL REFERENCES library_docs (id) ON DELETE CASCADE,
+      -- Counts from 1, in order.
+      seq      INTEGER NOT NULL,
+      -- The scene or chapter it's in.
+      heading  TEXT NOT NULL DEFAULT '',
+      -- In a script, the characters with lines in it, one per line.
+      speakers TEXT NOT NULL DEFAULT '',
+      content  TEXT NOT NULL,
+      UNIQUE (doc_id, seq)
+    );
+
+    -- The full-text search index over the passages (FTS5), with stemming, so
+    -- "running" finds "run". It reads its text from library_passages.
+    CREATE VIRTUAL TABLE library_fts USING fts5 (
+      heading, speakers, content,
+      content = 'library_passages', content_rowid = 'rowid',
+      tokenize = 'porter unicode61'
+    );
+
+    -- ------------------------------------------------------------ reactions
+
+    -- Emoji reactions, and custom emojis (src/reactions.ts).
+    CREATE TABLE reactions (
+      message_id TEXT NOT NULL REFERENCES messages (id) ON DELETE CASCADE,
+      author     TEXT NOT NULL CHECK (author IN ('user', 'friend')),
+      -- A Unicode emoji, or ':name:' of a custom one.
+      emoji      TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (message_id, author, emoji)
+    );
+
+    -- Images you uploaded, used as :name:. The files are in the data folder's
+    -- emojis/ folder.
+    CREATE TABLE custom_emojis (
+      name       TEXT PRIMARY KEY,
+      file       TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
     `);
 
-    // The model settings become the first profile, which then writes both
-    // jobs, so nothing changes until you change it. (A brand-new server has
-    // no saved settings, and gets the defaults.)
-    const saved = (key: string): unknown => {
-      const row = db.query("SELECT value FROM settings WHERE key = ?").get(key) as { value: string } | null;
-      return row ? JSON.parse(row.value) : undefined;
-    };
-    const model = (saved("model") as string | undefined) ?? "deepseek-ai/DeepSeek-V3.1-Terminus";
+    // Every server starts with one connection profile, which writes both
+    // roleplay and OOC until you change that.
+    const model = "deepseek-ai/DeepSeek-V3.1-Terminus";
     const id = crypto.randomUUID();
     db.query(
       `INSERT INTO profiles (id, name, model, temperature, max_tokens, position, created_at)
-       VALUES (?, ?, ?, ?, ?, 0, ?)`,
-    ).run(
-      id,
-      model.split("/").at(-1) || model,
-      model,
-      (saved("temperature") as number | undefined) ?? 0.9,
-      (saved("maxTokens") as number | undefined) ?? 1024,
-      new Date().toISOString(),
-    );
-    db.exec("DELETE FROM settings WHERE key IN ('model', 'temperature', 'maxTokens')");
-    const assign = db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)");
+       VALUES (?, ?, ?, 0.9, 1024, 0, ?)`,
+    ).run(id, model.split("/").at(-1)!, model, new Date().toISOString());
+    const assign = db.query("INSERT INTO settings (key, value) VALUES (?, ?)");
     assign.run("rpAssignment", JSON.stringify(`profile:${id}`));
     assign.run("oocAssignment", JSON.stringify(`profile:${id}`));
   },
-
-  // ---------------------------------------------------------------- 6
-  // Stage 6: tools, the approval queue, message comments, and notes attached
-  // to messages.
-  `
-  -- Every tool call your friend makes, kept for the activity shown under
-  -- their messages and for troubleshooting (see src/friend.ts).
-  CREATE TABLE tool_calls (
-    id         TEXT PRIMARY KEY,
-    channel_id TEXT NOT NULL REFERENCES channels (id) ON DELETE CASCADE,
-    -- The turn the call belongs to: the same id as the messages it wrote.
-    turn_id    TEXT NOT NULL,
-    -- Which round of the turn: a model can call tools, see the results,
-    -- and call more.
-    round      INTEGER NOT NULL,
-    name       TEXT NOT NULL,
-    -- The arguments exactly as the model wrote them, even if broken.
-    arguments  TEXT NOT NULL,
-    -- What was sent back to the model, as JSON.
-    result     TEXT NOT NULL,
-    status     TEXT NOT NULL CHECK (status IN ('ok', 'error')),
-    -- A short description for people, e.g. "pinned Tamsin to #story".
-    summary    TEXT NOT NULL DEFAULT '',
-    -- 'native' if the API returned it as a tool call, 'text' if it was
-    -- found written out in the reply (some models do that).
-    source     TEXT NOT NULL CHECK (source IN ('native', 'text')),
-    profile    TEXT,
-    created_at TEXT NOT NULL
-  );
-  CREATE INDEX tool_calls_by_channel ON tool_calls (channel_id, created_at);
-
-  -- Comments on messages, in threads. The first comment of a thread has
-  -- thread_id = its own id, and holds the highlighted text and whether the
-  -- thread is resolved.
-  CREATE TABLE comments (
-    id         TEXT PRIMARY KEY,
-    message_id TEXT NOT NULL REFERENCES messages (id) ON DELETE CASCADE,
-    thread_id  TEXT NOT NULL,
-    author     TEXT NOT NULL CHECK (author IN ('user', 'friend')),
-    quote      TEXT NOT NULL DEFAULT '',
-    note       TEXT NOT NULL,
-    resolved   INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL
-  );
-  CREATE INDEX comments_by_message ON comments (message_id);
-
-  -- Things your friend asks you to approve that aren't notebook changes
-  -- (those are suggestions): for now, deleting a channel.
-  CREATE TABLE proposals (
-    id          TEXT PRIMARY KEY,
-    kind        TEXT NOT NULL CHECK (kind IN ('delete_channel')),
-    target_id   TEXT NOT NULL,
-    -- The target's name when proposed, so the card still makes sense later.
-    target_name TEXT NOT NULL,
-    reason      TEXT NOT NULL DEFAULT '',
-    status      TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'denied')),
-    created_at  TEXT NOT NULL,
-    resolved_at TEXT
-  );
-
-  -- Notebook entries you attached to a message, so they're sent to your
-  -- friend in full while that message is in the conversation.
-  CREATE TABLE message_attachments (
-    message_id TEXT NOT NULL REFERENCES messages (id) ON DELETE CASCADE,
-    entry_id   TEXT NOT NULL REFERENCES notebook_entries (id) ON DELETE CASCADE,
-    PRIMARY KEY (message_id, entry_id)
-  );
-  `,
-
-  // ---------------------------------------------------------------- 7
-  // Stage 7: summaries, so long stories fit in the context (see
-  // src/summaries.ts).
-  `
-  CREATE TABLE summaries (
-    channel_id  TEXT NOT NULL REFERENCES channels (id) ON DELETE CASCADE,
-    -- 'scene':   one finished scene, ended by the scene break scene_id.
-    -- 'story':   the story so far: every finished scene, folded together.
-    -- 'current': the older part of the scene still going (in OOC, of the
-    --            whole conversation), started by the scene break scene_id
-    --            ('' for the channel's first scene).
-    -- 'digest':  one or two lines about the channel, for OOC.
-    kind        TEXT NOT NULL CHECK (kind IN ('scene', 'story', 'current', 'digest')),
-    scene_id    TEXT NOT NULL DEFAULT '',
-    content     TEXT NOT NULL,
-    -- The newest message (its seq) the summary covers.
-    through_seq INTEGER NOT NULL DEFAULT 0,
-    -- 1 when messages it covers were edited or deleted: it's rewritten.
-    stale       INTEGER NOT NULL DEFAULT 0,
-    -- 1 when you wrote or edited it: it's kept as you left it.
-    edited      INTEGER NOT NULL DEFAULT 0,
-    updated_at  TEXT NOT NULL,
-    PRIMARY KEY (channel_id, kind, scene_id)
-  );
-  `,
-
-  // ---------------------------------------------------------------- 8
-  // Stage 8: the Jev log (src/jevlog.ts, the same as Kitsikai's) and the
-  // wake-up log (src/wakeups.ts).
-  `
-  CREATE TABLE jev_log (
-    id          TEXT PRIMARY KEY,
-    at          TEXT NOT NULL,
-    -- What asked: "Wake-up", "Notebook keeper"...
-    purpose     TEXT NOT NULL,
-    model       TEXT NOT NULL,
-    -- The request body sent to Jev, as JSON; NULL if Jev wasn't asked (turned off).
-    request     TEXT,
-    -- Jev's reply, exactly as it came back ('' if there wasn't one).
-    response    TEXT NOT NULL,
-    error       TEXT,
-    -- 'jev', 'fallback', or NULL when nobody answered.
-    answered_by TEXT CHECK (answered_by IN ('jev', 'fallback')),
-    -- The answers in short: "t1: yes (95%), plan: no (90%)".
-    summary     TEXT NOT NULL,
-    -- The fallback profile's request and reply, as JSON, when it was asked.
-    fallback    TEXT,
-    duration_ms INTEGER NOT NULL
-  );
-  CREATE INDEX jev_log_by_time ON jev_log (at);
-
-  -- Each time something could have woken your friend, and what came of it.
-  CREATE TABLE wakeups (
-    id         TEXT PRIMARY KEY,
-    at         TEXT NOT NULL,
-    -- What happened: 'opened', 'away', 'scene-ended', 'review', 'heartbeat'.
-    reason     TEXT NOT NULL,
-    -- 'posted' (they wrote), 'quiet' (their turn, but they chose not to
-    -- write), 'declined' (Jev said it wasn't the moment), 'failed'.
-    outcome    TEXT NOT NULL CHECK (outcome IN ('posted', 'quiet', 'declined', 'failed')),
-    channel_id TEXT REFERENCES channels (id) ON DELETE SET NULL,
-    -- Why, in words.
-    detail     TEXT NOT NULL DEFAULT ''
-  );
-  CREATE INDEX wakeups_by_time ON wakeups (at);
-  `,
-
-  // ---------------------------------------------------------------- 9
-  // The reference library (src/library.ts): long texts, split into
-  // passages, that your friend can search and read with tools.
-  `
-  CREATE TABLE library_docs (
-    id          TEXT PRIMARY KEY,
-    title       TEXT NOT NULL,
-    description TEXT NOT NULL DEFAULT '',
-    -- A JSON list of the channels it's limited to; '[]' means everywhere.
-    channel_ids TEXT NOT NULL DEFAULT '[]',
-    chars       INTEGER NOT NULL,
-    passages    INTEGER NOT NULL,
-    created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
-  );
-
-  -- A page or so of a document each. The rowid ties it to the search index.
-  CREATE TABLE library_passages (
-    rowid    INTEGER PRIMARY KEY,
-    doc_id   TEXT NOT NULL REFERENCES library_docs (id) ON DELETE CASCADE,
-    -- Counts from 1, in order.
-    seq      INTEGER NOT NULL,
-    -- The scene or chapter it's in.
-    heading  TEXT NOT NULL DEFAULT '',
-    -- In a script, the characters with lines in it, one per line.
-    speakers TEXT NOT NULL DEFAULT '',
-    content  TEXT NOT NULL,
-    UNIQUE (doc_id, seq)
-  );
-
-  -- The full-text search index over the passages (FTS5), with stemming, so
-  -- "running" finds "run". It reads its text from library_passages.
-  CREATE VIRTUAL TABLE library_fts USING fts5 (
-    heading, speakers, content,
-    content = 'library_passages', content_rowid = 'rowid',
-    tokenize = 'porter unicode61'
-  );
-  `,
-
-  // --------------------------------------------------------------- 10
-  // The notebook keeper (src/keeper.ts): how far it has read in each
-  // channel, and its actions in the tool log (source 'keeper'). SQLite
-  // can't change a CHECK, so tool_calls is rebuilt with the new source.
-  `
-  CREATE TABLE keeper_state (
-    channel_id  TEXT PRIMARY KEY REFERENCES channels (id) ON DELETE CASCADE,
-    -- The newest message (by seq) the keeper has looked at.
-    through_seq INTEGER NOT NULL
-  );
-
-  CREATE TABLE tool_calls_new (
-    id         TEXT PRIMARY KEY,
-    channel_id TEXT NOT NULL REFERENCES channels (id) ON DELETE CASCADE,
-    turn_id    TEXT NOT NULL,
-    round      INTEGER NOT NULL,
-    name       TEXT NOT NULL,
-    arguments  TEXT NOT NULL,
-    result     TEXT NOT NULL,
-    status     TEXT NOT NULL CHECK (status IN ('ok', 'error')),
-    summary    TEXT NOT NULL DEFAULT '',
-    -- 'native' or 'text' (see migration 6), or 'keeper' for the notebook
-    -- keeper's changes, made as your friend between turns.
-    source     TEXT NOT NULL CHECK (source IN ('native', 'text', 'keeper')),
-    profile    TEXT,
-    created_at TEXT NOT NULL
-  );
-  INSERT INTO tool_calls_new SELECT id, channel_id, turn_id, round, name, arguments, result, status, summary, source, profile, created_at FROM tool_calls ORDER BY rowid;
-  DROP TABLE tool_calls;
-  ALTER TABLE tool_calls_new RENAME TO tool_calls;
-  CREATE INDEX tool_calls_by_channel ON tool_calls (channel_id, created_at);
-  `,
-
-  // --------------------------------------------------------------- 11
-  // Emoji reactions, and custom emojis (src/reactions.ts).
-  `
-  CREATE TABLE reactions (
-    message_id TEXT NOT NULL REFERENCES messages (id) ON DELETE CASCADE,
-    author     TEXT NOT NULL CHECK (author IN ('user', 'friend')),
-    -- A Unicode emoji, or ':name:' of a custom one.
-    emoji      TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    PRIMARY KEY (message_id, author, emoji)
-  );
-
-  -- Images you uploaded, used as :name:. The files are in the data folder's
-  -- emojis/ folder.
-  CREATE TABLE custom_emojis (
-    name       TEXT PRIMARY KEY,
-    file       TEXT NOT NULL,
-    created_at TEXT NOT NULL
-  );
-  `,
-
-  // --------------------------------------------------------------- 12
-  // The heartbeat's idea drawer (src/ideas.ts, src/heartbeat.ts), and a few
-  // values kept between runs.
-  `
-  CREATE TABLE ideas (
-    id         TEXT PRIMARY KEY,
-    created_at TEXT NOT NULL,
-    kind       TEXT NOT NULL CHECK (kind IN ('story', 'character', 'twist', 'thought')),
-    content    TEXT NOT NULL,
-    -- How much Jev liked it (0 to 1).
-    grade      REAL NOT NULL,
-    status     TEXT NOT NULL CHECK (status IN ('drawer', 'shared', 'dropped')),
-    note       TEXT NOT NULL DEFAULT '',
-    shared_at  TEXT
-  );
-
-  CREATE TABLE app_state (
-    key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-  );
-  `,
-
-  // --------------------------------------------------------------- 13
-  // Channel categories: named, collapsible groups in the sidebar.
-  `
-  CREATE TABLE categories (
-    id         TEXT PRIMARY KEY,
-    name       TEXT NOT NULL,
-    -- Where it sits among the categories: 0 is the top. Channels outside
-    -- any category are listed above all of them.
-    position   INTEGER NOT NULL,
-    -- 1 when folded up in the sidebar.
-    collapsed  INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL
-  );
-
-  -- Deleting a category leaves its channels, outside any category.
-  ALTER TABLE channels ADD COLUMN category_id TEXT REFERENCES categories (id) ON DELETE SET NULL;
-  `,
 ];
 
 /**

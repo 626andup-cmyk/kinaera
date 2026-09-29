@@ -24,7 +24,6 @@
 
 import { createChatCompletion, type ApiOptions } from "./nanogpt.ts";
 import { pickProfile, profileRequest } from "./friend.ts";
-import type { Judge } from "./judge.ts";
 import type { Store } from "./store.ts";
 import {
   chunkLines,
@@ -38,10 +37,6 @@ import {
 } from "./summaries.ts";
 import type { Channel, ChannelSummaries, Profile, Summary } from "./types.ts";
 
-/** Added to a rewrite after a summary didn't match its scene. */
-export const STRICT_NOTE =
-  "Your last summary of this scene included things that don't happen in it. Stick strictly to what the messages say: no invented events, names or details, and nothing from outside the scene.";
-
 /** A new digest is written once this many posts have been added since the last one. */
 export const DIGEST_EVERY = 8;
 
@@ -54,8 +49,6 @@ export class Summarizer {
   private readonly runs = new Map<string, Promise<void>>();
   private readonly running = new Set<string>();
   private readonly errors = new Map<string, string>();
-  /** Jev's double-checks (src/judge.ts): each scene summary is checked against its scene. */
-  judge: Judge | null = null;
   /** Told when a scene's summary is written (stage 8: a scene ending can wake your friend). */
   onSceneSummarized: ((channelId: string, breakId: string) => void) | null = null;
 
@@ -170,13 +163,7 @@ export class Summarizer {
       const current = store.summaries.get(channelId, "current", startId);
       const seed = current && !current.stale ? current : null;
       const posts = seed ? scene.posts.filter((p) => p.seq > seed.throughSeq) : scene.posts;
-      let content = await write("scene", seed?.content ?? "", lines(posts), sceneHeading(scene, scenes.indexOf(scene)));
-      // Checked against the whole scene: one invented detail here would
-      // spread to the story so far, the digests and every prompt after.
-      if (this.judge && (await this.judge.faithfulSummary(lines(scene.posts), content)) === "no") {
-        console.warn(`[summaries] a summary of ${sceneHeading(scene, scenes.indexOf(scene))} didn't match the scene; rewriting it`);
-        content = await write("scene", "", lines(scene.posts), sceneHeading(scene, scenes.indexOf(scene)), STRICT_NOTE);
-      }
+      const content = await write("scene", seed?.content ?? "", lines(posts), sceneHeading(scene, scenes.indexOf(scene)));
       store.summaries.save(channelId, "scene", scene.end.id, content, scene.end.seq);
       if (current) store.summaries.remove(channelId, "current", startId);
       try {

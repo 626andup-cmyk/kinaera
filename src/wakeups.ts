@@ -1,52 +1,45 @@
 /**
- * Wake-ups (stage 8): your friend taking a turn without a message from you.
+ * Wake-ups: your friend taking a turn without a message from you.
  *
- * The design's core rule is that *a friend turn never requires a user
- * message*, and stage 8 is where that pays off. Your friend gets a turn
- * when something happens:
+ * The core rule is that *a friend turn never requires a user message*.
+ * Your friend gets a turn when something happens:
  *
  *   - **you open the app** ("away" if you haven't written for a while,
  *     `awayHours`; otherwise just "opened")
  *   - **a scene ends** (one you ended, once it's been summarized)
  *   - **a suggestion of yours is waiting for their review**
- *   - (endgame) **the heartbeat**, a timer: see src/heartbeat.ts
+ *   - **the heartbeat**, a timer: see src/heartbeat.ts
  *
  * A wake-up is a turn in your OOC channel (the one you talked in last),
  * with tools if the profile has them. Its prompt says why they're up, how
  * long it's been since you last wrote, what's waiting, and the summary of
  * a scene that just ended; OOC's prompt already has the server digest. They
  * can write, act with tools, or do nothing (`do_nothing`, or replying
- * `[nothing]` without tools), which is usually right.
+ * `[nothing]` without tools). Doing nothing is always fine.
  *
- * ## Rules that aren't up to anyone
+ * ## Hard rules first, then your friend decides
+ *
+ * These are plain code, with no model calls. They protect your sleep and
+ * your balance; everything else is your friend's call, made in their own
+ * turn (Aettica asked Jev "is it the moment?" first; Kinaera doesn't).
  *
  * - **Chattiness** (`Settings.wakeups`) decides which events count at all:
  *   off; quiet (coming back after being away, and reviews); normal (also a
  *   scene ending); chatty (also any time you open the app).
  * - **Quiet hours**: never, except reviews (which are silent work).
  * - **A cooldown** between wake-ups (`wakeCooldownMinutes`, reviews 10).
- * - **Never twice in a row**: once your friend has reached out, they wait
- *   for you to write before reaching out again (reviews excepted).
- * - Not while they're writing in that channel, and not without an API key.
+ * - **No double texts**: once your friend has reached out, they wait for
+ *   you to write before reaching out again (reviews excepted).
+ * - **Never mid-conversation**: not right after you were talking, and not
+ *   while they're writing in that channel. Not without an API key either.
  *
- * ## Jev decides whether it's the moment
- *
- * Before a writer model is even called, Jev (src/jev.ts) is asked, with a
- * snapshot of what's going on: "the user just came back after 2 days: would
- * a short message feel natural and welcome right now?" A confident yes
- * wakes your friend; no, or unsure, doesn't (the safe path). Reviews skip
- * the question: they're work, not conversation. With Jev turned off (and no
- * fallback profile), your friend's own turn decides, through do_nothing.
- *
- * Every wake-up that got as far as Jev is in the wake-up log (Settings →
- * Your friend reaching out), with what came of it and why.
+ * Every wake-up turn is in the wake-up log (Settings → Your friend reaching
+ * out), with what came of it.
  */
 
 import type { Database } from "bun:sqlite";
-import { confidentChoice, percent, probabilityOf, tier, type Decider, type Question } from "./jev.ts";
 import { BusyError, pickProfile, type Friend } from "./friend.ts";
 import type { WakeContext, WakeReason } from "./prompt.ts";
-import type { Idea } from "./ideas.ts";
 import type { Store } from "./store.ts";
 import { splitScenes } from "./summaries.ts";
 import type { Channel, Message } from "./types.ts";
@@ -55,7 +48,7 @@ import type { Channel, Message } from "./types.ts";
 export type WakeEvent = "opened" | "scene-ended" | "review" | "heartbeat";
 
 /** What came of a wake-up. */
-export type WakeOutcome = "posted" | "quiet" | "declined" | "failed";
+export type WakeOutcome = "posted" | "quiet" | "failed";
 
 /** One wake-up in the log. */
 export interface WakeRecord {
@@ -69,7 +62,7 @@ export interface WakeRecord {
 
 /** What `Wakeups.event` did. */
 export interface WakeResult {
-  /** `null` when the event didn't count (off, quiet hours, cooldown...): nothing was logged. */
+  /** `null` when a hard rule stopped it (off, quiet hours, cooldown...): nothing was logged. */
   outcome: WakeOutcome | null;
   reason: WakeReason | null;
   detail: string;
@@ -82,8 +75,8 @@ export const REVIEW_COOLDOWN_MINUTES = 10;
 /** A scene break older than this (minutes) when summarized didn't "just" end the scene. */
 export const FRESH_SCENE_MINUTES = 60;
 
-/** How many of the newest OOC messages Jev's snapshot shows. */
-const SNAPSHOT_LINES = 8;
+/** Within this long (minutes) of the last message, you're mid-conversation. */
+export const CONVERSATION_MINUTES = 30;
 
 // --------------------------------------------------------------- the log
 
@@ -96,7 +89,7 @@ interface WakeRow {
   detail: string;
 }
 
-/** The wake-up log: what could have woken your friend, and what came of it. */
+/** The wake-up log: each turn your friend took on their own, and what came of it. */
 export class WakeLog {
   constructor(private readonly db: Database) {}
 
@@ -163,7 +156,7 @@ const COUNTS: Record<string, WakeReason[]> = {
 
 // ----------------------------------------------------------- wake-ups
 
-/** Decides whether your friend wakes up, and runs the turn if so. */
+/** Checks the hard rules, and gives your friend the turn if they pass. */
 export class Wakeups {
   private running = false;
   /** Told when a wake-up writes to you (for phone notifications, src/notify.ts). */
@@ -172,24 +165,22 @@ export class Wakeups {
   constructor(
     private readonly store: Store,
     private readonly friend: Friend,
-    private readonly decider: Decider,
     private readonly hasApiKey: boolean,
     private readonly now: () => Date = () => new Date(),
   ) {}
 
   /**
-   * Something happened that could wake your friend. Resolves once it's
-   * decided (and, if they woke, once their turn is done). Never throws.
+   * Something happened that could wake your friend. Resolves once their
+   * turn is done (or a rule stopped it). Never throws.
    *
    * @param detail  For "scene-ended": the channel and the scene break.
-   *                For "heartbeat": the idea being shared, if any.
    */
-  async event(event: WakeEvent, detail: { channelId?: string; breakId?: string; idea?: string; ideas?: string[] } = {}): Promise<WakeResult> {
+  async event(event: WakeEvent, detail: { channelId?: string; breakId?: string } = {}): Promise<WakeResult> {
     const skip = (why: string): WakeResult => ({ outcome: null, reason: null, detail: why, messages: [] });
     if (this.running) return skip("Your friend is already waking up.");
     this.running = true;
     try {
-      return await this.decide(event, detail, skip);
+      return await this.wake(event, detail, skip);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.warn(`[wake] ${event} failed: ${message}`);
@@ -200,17 +191,16 @@ export class Wakeups {
   }
 
   /**
-   * Whether an event would be stopped by the rules alone (no model call):
-   * the reason why, or `null` if it would go ahead to Jev. For the
-   * heartbeat, which checks before spending anything on ideas.
+   * Whether an event would be stopped by the hard rules: the reason why,
+   * or `null` if it would go ahead.
    */
   blocked(event: WakeEvent): string | null {
     const checked = this.rules(event);
     return "skip" in checked ? checked.skip : null;
   }
 
-  /** The rules that aren't up to anyone, and where your friend would write. */
-  private rules(event: WakeEvent): { skip: string } | { reason: WakeReason; channel: Channel; channels: Channel[]; sinceMs: number | null } {
+  /** The hard rules, and where your friend would write. */
+  private rules(event: WakeEvent): { skip: string } | { reason: WakeReason; channel: Channel; sinceMs: number | null } {
     const { store } = this;
     const settings = store.getSettings();
     const now = this.now();
@@ -239,7 +229,8 @@ export class Wakeups {
       }
     }
     // Opening the app, or the heartbeat, in the middle of a conversation.
-    if ((reason === "opened" || reason === "heartbeat") && all.at(-1) && now.getTime() - new Date(all.at(-1)!.createdAt).getTime() < 30 * 60_000) {
+    const last = all.at(-1);
+    if ((reason === "opened" || reason === "heartbeat") && last && now.getTime() - new Date(last.createdAt).getTime() < CONVERSATION_MINUTES * 60_000) {
       return skip("You were talking just now: that's a conversation, not a wake-up.");
     }
 
@@ -249,58 +240,18 @@ export class Wakeups {
     if (reason === "review" && !pickProfile(store, channel).supportsTools) {
       return skip("The profile that writes OOC can't use tools, so it couldn't review anything.");
     }
-    return { reason, channel, channels, sinceMs };
+    return { reason, channel, sinceMs };
   }
 
-  private async decide(
+  private async wake(
     event: WakeEvent,
-    detail: { channelId?: string; breakId?: string; idea?: string; ideas?: string[] },
+    detail: { channelId?: string; breakId?: string },
     skip: (why: string) => WakeResult,
   ): Promise<WakeResult> {
-    const { store } = this;
-    const settings = store.getSettings();
-    const now = this.now();
     const checked = this.rules(event);
     if ("skip" in checked) return skip(checked.skip);
-    const { reason, channels, sinceMs } = checked;
-    let channel = checked.channel;
-
-    // What they're told about why they're up.
-    const context = wakeContext(store, reason, sinceMs, detail);
-    // Ideas from the drawer (src/ideas.ts), to bring up if they fit now.
-    const offered = reason !== "review" && !detail.idea && !detail.ideas ? store.ideas.drawer(3) : [];
-    if (offered.length) context.ideas = offered.map((i) => i.content);
-
-    // Jev: is it the moment? (Not for reviews: those are work.)
-    if (reason !== "review" && this.decider.enabled()) {
-      const question = QUESTIONS[reason](context);
-      // Several OOC channels: Jev picks the one this fits best, in the same
-      // call (Kitsikai's "which channel?"). Unsure keeps the one you used last.
-      const oocs = channels.filter((c) => c.kind === "ooc");
-      const pick: Question | null =
-        oocs.length > 1
-          ? { id: "channel", kind: "choice", question: "Which of the out-of-character channels (listed above) fits this message best?", options: oocs.map((c) => c.name) }
-          : null;
-      let state = snapshot(store, channel, context, now);
-      if (pick) state += `\nThe out-of-character channels:\n${oocs.map((c) => `#${c.name}: ${channelLine(store, c)}`).join("\n")}`;
-      let yes: number;
-      try {
-        const answers = await this.decider.ask(state, pick ? [question, pick] : [question], { purpose: `Wake-up (${reason})` });
-        const answer = answers.get(question.id);
-        const picked = pick ? confidentChoice(answers.get("channel"), settings.decisionConfidence) : null;
-        const chosen = picked ? oocs.find((c) => c.name === picked) : undefined;
-        if (chosen && !this.friend.isBusy(chosen.id)) channel = chosen;
-        yes = probabilityOf(answer, "yes");
-        const verdict = tier(answer, settings.decisionConfidence);
-        if (verdict !== "yes") {
-          const why = `Jev: ${verdict === "no" ? "not the moment" : "unsure, so not now"} (${percent(yes)} yes).`;
-          return this.log(reason, "declined", channel, why);
-        }
-      } catch (error) {
-        return this.log(reason, "failed", channel, `Jev couldn't answer: ${error instanceof Error ? error.message : error}`);
-      }
-      console.log(`[wake] ${reason}: Jev says yes (${percent(yes)})`);
-    }
+    const { reason, channel, sinceMs } = checked;
+    const context = wakeContext(this.store, reason, sinceMs, detail);
 
     try {
       const result = await this.friend.takeTurn(channel.id, "wake", { wake: context });
@@ -314,35 +265,11 @@ export class Wakeups {
         } catch (error) {
           console.warn("[wake] couldn't pass on a message", error);
         }
-        if (offered.length) await this.markShared(offered, result.messages);
       }
       return logged;
     } catch (error) {
       if (error instanceof BusyError) return skip("Your friend is writing there already.");
       return this.log(reason, "failed", channel, error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  /** Which drawer ideas did the message bring up? Those are shared now (Jev; unsure stays in the drawer). */
-  private async markShared(offered: Idea[], messages: Message[]): Promise<void> {
-    if (!this.decider.enabled()) return;
-    const name = this.store.getSettings().friendName;
-    const text = messages.map((m) => m.content).join("\n");
-    try {
-      const verdicts = await this.decider.askSeries(
-        `${name}'s message:\n${text}`,
-        offered.map((idea, i) => ({
-          id: `r${i}`,
-          phrasings: [`Does ${name}'s message bring up this idea: "${idea.content}"?`, `Is this idea part of what ${name} said: "${idea.content}"?`],
-        })),
-        this.store.getSettings().decisionConfidence,
-        { purpose: "Ideas: which were shared?" },
-      );
-      offered.forEach((idea, i) => {
-        if (verdicts.get(`r${i}`)?.verdict === "yes") this.store.ideas.setStatus(idea.id, "shared", "Brought up on a wake-up.");
-      });
-    } catch (error) {
-      console.warn(`[wake] couldn't check which ideas were shared: ${error instanceof Error ? error.message : error}`);
     }
   }
 
@@ -373,7 +300,7 @@ export function wakeContext(
   store: Store,
   reason: WakeReason,
   sinceMs: number | null,
-  detail: { channelId?: string; breakId?: string; idea?: string; ideas?: string[] },
+  detail: { channelId?: string; breakId?: string },
 ): WakeContext {
   const waiting: string[] = [];
   const entries = store.notebook.listEntries("friend");
@@ -387,8 +314,6 @@ export function wakeContext(
   for (const p of store.proposals.pending()) waiting.push(`Your proposal to delete #${p.targetName} is waiting for the user.`);
 
   const context: WakeContext = { reason, sinceUser: sinceMs === null ? null : humanDuration(sinceMs), waiting };
-  if (detail.idea) context.idea = detail.idea;
-  if (detail.ideas?.length) context.ideas = detail.ideas;
   if (reason === "scene-ended" && detail.channelId) {
     const channel = store.getChannel(detail.channelId);
     const messages = store.summaries.withSeq(channel.id, store.getMessages(channel.id));
@@ -401,57 +326,4 @@ export function wakeContext(
     };
   }
   return context;
-}
-
-/** The question Jev is asked for each reason: is it the moment? */
-const QUESTIONS: Record<Exclude<WakeReason, "review">, (context: WakeContext) => Question> = {
-  away: (c) => ({
-    id: "reach",
-    kind: "yesno",
-    question: `The user just came back to the app after ${c.sinceUser ?? "a while"} away. Would a short, friendly message from their writing friend feel natural and welcome right now?`,
-  }),
-  opened: () => ({
-    id: "reach",
-    kind: "yesno",
-    question: "The user just opened the app. Would a short message from their writing friend feel natural right now, rather than too much?",
-  }),
-  "scene-ended": () => ({
-    id: "reach",
-    kind: "yesno",
-    question:
-      "The user just ended a scene of their story. Would a short out-of-character reaction from their writing friend (how it went, or what might come next) feel natural and welcome right now?",
-  }),
-  heartbeat: (c) => ({
-    id: "reach",
-    kind: "yesno",
-    question: c.idea
-      ? `Their writing friend has an idea to share: "${c.idea}". Would texting it to the user right now feel natural and welcome?`
-      : "Would a short message from their writing friend, out of nowhere, feel natural and welcome right now?",
-  }),
-};
-
-/** A channel in a line, for choosing between them: its digest, or its newest post. */
-function channelLine(store: Store, channel: Channel): string {
-  const digest = store.summaries.get(channel.id, "digest")?.content;
-  if (digest) return digest.replace(/\s+/g, " ").slice(0, 300);
-  const last = store.getMessages(channel.id).filter((m) => m.kind === "post").at(-1);
-  return last ? `last message: ${last.content.replace(/\s+/g, " ").slice(0, 200)}` : "empty";
-}
-
-/** What Jev is shown: the time, the silence, the recent OOC chat, what's waiting. */
-export function snapshot(store: Store, channel: Channel, context: WakeContext, now: Date): string {
-  const settings = store.getSettings();
-  const lines = [
-    `It's ${now.toLocaleString("en-US", { weekday: "long", hour: "numeric", minute: "2-digit" })}.`,
-    context.sinceUser ? `The user last wrote ${context.sinceUser} ago.` : "The user hasn't written anything yet.",
-  ];
-  const recent = store
-    .getMessages(channel.id)
-    .filter((m) => m.kind === "post")
-    .slice(-SNAPSHOT_LINES)
-    .map((m) => `${m.author === "user" ? "User" : settings.friendName}: ${m.content.replace(/\s+/g, " ").slice(0, 300)}`);
-  if (recent.length) lines.push(`Their latest out-of-character chat (#${channel.name}), newest last:`, ...recent);
-  if (context.scene?.summary) lines.push(`The scene that just ended in #${context.scene.channel}: ${context.scene.summary}`);
-  if (context.waiting.length) lines.push("Waiting:", ...context.waiting);
-  return lines.join("\n");
 }

@@ -19,21 +19,19 @@ import { NotFoundError, ValidationError } from "./errors.ts";
 import { Notebook } from "./notebook.ts";
 import { Profiles } from "./profiles.ts";
 import { Comments, Proposals, ToolLog } from "./activity.ts";
-import { parseSheet } from "./sheets.ts";
 import { Summaries } from "./summaries.ts";
 import { JevLog } from "./jevlog.ts";
 import { WakeLog } from "./wakeups.ts";
 import { Library } from "./library.ts";
-import { KeeperState } from "./keeper.ts";
 import { Reactions } from "./reactions.ts";
-import { AppState, Ideas } from "./ideas.ts";
-import { importLegacyChat } from "./legacy.ts";
+import { AppState } from "./appstate.ts";
 import type {
   Category,
   Author,
   Channel,
   ChannelKind,
   ChannelMode,
+  EntryField,
   Message,
   MessageKind,
   Settings,
@@ -84,9 +82,6 @@ export function defaultSettings(): Settings {
     wakeCooldownMinutes: 60,
     quietStart: -1,
     quietEnd: 8,
-    notebookKeeper: true,
-    keeperEvery: 6,
-    jevChecks: true,
     heartbeatHours: 0,
     friendAvatar: "",
     friendColor: -1,
@@ -98,9 +93,19 @@ export function defaultSettings(): Settings {
   };
 }
 
-/** The character sheet a brand-new server's first RP channel starts with. */
-export function defaultCharacter(): { name: string; sheet: string } {
-  return { name: "Ilse Marrow", sheet: readDefault("character.md") };
+/**
+ * The example character a brand-new server's first RP channel starts with,
+ * from `defaults/character.md`: one `Label: text` line per field, and a
+ * `Name:` line for their name. Blank lines are skipped.
+ */
+export function defaultCharacter(): { name: string; fields: EntryField[] } {
+  const fields: EntryField[] = [];
+  for (const line of readDefault("character.md").split("\n")) {
+    const match = line.match(/^\s*([^:\n]{1,30}):\s*(.+)$/);
+    if (match) fields.push({ label: match[1]!.trim(), value: match[2]!.trim() });
+  }
+  const name = fields.find((f) => f.label.toLowerCase() === "name")?.value ?? "Ilse Marrow";
+  return { name, fields: fields.filter((f) => f.label.toLowerCase() !== "name") };
 }
 
 function readDefault(fileName: string): string {
@@ -121,7 +126,6 @@ const LIMITS = {
   awayHours: { min: 0.25, max: 720 },
   wakeCooldownMinutes: { min: 1, max: 10_080 },
   hour: { min: -1, max: 23 },
-  keeperEvery: { min: 2, max: 100 },
   heartbeatHours: { min: 0, max: 168 },
   typingBaseMs: { min: 0, max: 10_000 },
   typingPerCharMs: { min: 0, max: 1000 },
@@ -207,15 +211,6 @@ export function validateSettings(input: unknown): Partial<Settings> {
   for (const key of ["typingBaseMs", "typingPerCharMs", "replyDelayMs"] as const) {
     if (raw[key] !== undefined) clean[key] = numberInRange(raw[key], key, LIMITS[key], true);
   }
-  if (raw.jevChecks !== undefined) {
-    if (typeof raw.jevChecks !== "boolean") throw new ValidationError("jevChecks must be true or false");
-    clean.jevChecks = raw.jevChecks;
-  }
-  if (raw.notebookKeeper !== undefined) {
-    if (typeof raw.notebookKeeper !== "boolean") throw new ValidationError("notebookKeeper must be true or false");
-    clean.notebookKeeper = raw.notebookKeeper;
-  }
-  if (raw.keeperEvery !== undefined) clean.keeperEvery = numberInRange(raw.keeperEvery, "keeperEvery", LIMITS.keeperEvery, true);
   if (raw.summaries !== undefined) {
     if (typeof raw.summaries !== "boolean") throw new ValidationError("summaries must be true or false");
     clean.summaries = raw.summaries;
@@ -500,12 +495,8 @@ export class Store {
   readonly jevLog: JevLog;
   /** The reference library: long texts your friend can search. */
   readonly library: Library;
-  /** How far the notebook keeper has read in each channel. */
-  readonly keeper: KeeperState;
   /** Emoji reactions on messages, and custom emojis. */
   readonly reactions: Reactions;
-  /** The heartbeat's idea drawer. */
-  readonly ideas: Ideas;
   /** Small values kept between runs. */
   readonly appState: AppState;
   /** Your friend's recent wake-ups, and what came of them (see `src/wakeups.ts`). */
@@ -520,8 +511,7 @@ export class Store {
 
   /**
    * Be told whenever a channel's messages change (added, edited, deleted):
-   * summaries catch up (src/summarizer.ts), the notebook keeper looks at
-   * new messages.
+   * summaries catch up (src/summarizer.ts).
    */
   watchMessages(watcher: (channelId: string) => void): void {
     this.messageWatchers.push(watcher);
@@ -535,9 +525,9 @@ export class Store {
   /**
    * Open (or create) the database inside `dataDir`.
    *
-   * The very first time, the database is filled with starting content: your
-   * stage 1 chat if there is one (see `src/legacy.ts`), otherwise a `#story`
-   * channel with the example character pinned to it, and an `#ooc` channel.
+   * The very first time, the database is filled with starting content: a
+   * `#story` channel with the example character pinned to it, and an `#ooc`
+   * channel.
    *
    * @param dataDir  Folder for the database. Created if it doesn't exist.
    *                 Pass `":memory:"` for a throwaway database (for tests).
@@ -557,17 +547,12 @@ export class Store {
     this.summaries = new Summaries(this.db);
     this.jevLog = new JevLog(this.db);
     this.library = new Library(this.db, (id) => this.hasChannel(id));
-    this.keeper = new KeeperState(this.db);
     // In memory (tests), custom emoji files go to a throwaway folder.
     this.reactions = new Reactions(this.db, inMemory ? join(tmpdir(), `kinaera-emojis-${crypto.randomUUID()}`) : dataDir, () => this.revision++);
     this.wakeLog = new WakeLog(this.db);
-    this.ideas = new Ideas(this.db);
     this.appState = new AppState(this.db);
 
-    if (isNew) {
-      const imported = !inMemory && importLegacyChat(this, dataDir);
-      if (!imported) this.seed(options.example ?? true);
-    }
+    if (isNew) this.seed(options.example ?? true);
   }
 
   /**
@@ -579,23 +564,13 @@ export class Store {
     this.createChannel({ name: "ooc", kind: "ooc" });
     if (!example) return;
     const character = defaultCharacter();
-    this.addCharacterFromSheet(character.name, character.sheet, story.id);
-  }
-
-  /**
-   * Make a character entry of your friend's from a plain-text sheet, and
-   * pin it to a channel. Used for the example character and for importing
-   * a stage 1 chat.
-   */
-  addCharacterFromSheet(name: string, sheet: string, channelId: string): void {
-    const parsed = parseSheet(sheet);
     const entry = this.notebook.createEntry("user", {
       kind: "character",
       owner: "friend",
-      name: name || parsed.name || "Unnamed character",
-      fields: parsed.fields,
+      name: character.name,
+      fields: character.fields,
     });
-    this.notebook.pin("user", channelId, entry.id);
+    this.notebook.pin("user", story.id, entry.id);
   }
 
   /** Close the database. Only needed in tests, which open many. */

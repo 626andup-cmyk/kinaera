@@ -897,16 +897,22 @@ describe("comments", () => {
     expect(fake.requests[0]!.messages[0]!.content).toContain("## Comment threads");
   });
 
-  test("commenting on your own message doesn't wake your friend, until they're in the thread", async () => {
+  test("commenting on your own message: your friend decides whether it's for them", async () => {
     const [message] = app.store.addTurn([{ channelId: story.id, author: "user", content: "I knock." }]);
+    // A note to self: they leave it.
+    fake.replies.push({ content: "[nothing]" });
     const started = await call("POST", `/api/messages/${message!.id}/comments`, { note: "Note to self." });
-    expect(started.data.friendMessages).toBeUndefined();
-    expect(fake.requests).toHaveLength(0);
-
-    const threadId = started.data.thread.id;
-    app.store.comments.reply("friend", threadId, "Noted!");
-    await call("POST", `/api/comments/${threadId}/replies`, { note: "Thanks." });
     expect(fake.requests).toHaveLength(1);
+    // They were told leaving it is fine; no Jev was asked.
+    expect(JSON.stringify(fake.requests[0]!.messages.at(-1))).toContain("note they left for themselves");
+    expect(fake.jevRequests).toHaveLength(0);
+    expect(started.data.thread.comments).toHaveLength(1);
+
+    // A question: they answer in the thread.
+    const threadId = started.data.thread.id;
+    fake.replies.push({ content: "Loud and clear." });
+    const replied = await call("POST", `/api/comments/${threadId}/replies`, { note: "Arlo, too much?" });
+    expect(replied.data.thread.comments.at(-1)).toMatchObject({ author: "friend", note: "Loud and clear." });
 
     const resolved = await call("POST", `/api/comments/${threadId}/resolve`, {});
     expect(resolved.data.thread.resolved).toBe(true);

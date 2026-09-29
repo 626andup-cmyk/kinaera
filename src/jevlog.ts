@@ -1,11 +1,12 @@
 /**
  * The Jev log: every call to Jev from the last 36 hours, exactly as it went.
  *
- * Each row is one `JevCall` (src/jev.ts): what asked ("Wake-up",
- * "Notebook keeper"...), the request exactly as sent, the reply exactly as
+ * Each row is one `JevCall` (src/jev.ts): what asked ("Test Jev",
+ * "Check"...), the request exactly as sent, the reply exactly as
  * received, any error, and the fallback profile's request and reply if it
- * was asked. It's for seeing what Jev is told and what it says back: why your
- * friend did or didn't reach out, why the notebook was or wasn't changed.
+ * was asked. It's for seeing what Jev is told and what it says back.
+ *
+ * In stage 3 this becomes the `check` log.
  *
  * It's a **rolling** log: anything older than 36 hours is deleted whenever
  * a call is added or the log is read, so it never grows past a day and a

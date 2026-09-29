@@ -40,8 +40,6 @@ export interface Config {
    * tests turn it off and call `app.wakeups.event` themselves.
    */
   autoWake?: boolean;
-  /** How long after a change the notebook keeper looks (ms); negative: only when asked (tests). */
-  keeperDelayMs?: number;
   /**
    * Set by the hub (src/hub.ts), which runs one app per friend. Where your
    * own themes are (shared by every friend; default `<dataDir>/themes`),
