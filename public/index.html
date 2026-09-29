@@ -12,7 +12,7 @@
     dialogs             settings, channel settings, new channel, notebook,
                         entry, folder, appearance, theme editor, prompt preview
 
-  All behaviour lives in app.js; all styling in style.css.
+  All behaviour lives in js/ (main.js is the starting point); all styling in style.css.
 
   Theme-ready: every styled element has a descriptive class a theme can
   target, and elements with the `surface` class (panels you look *through*
@@ -36,7 +36,7 @@
 
     <link rel="stylesheet" href="/style.css" />
     <!--
-      Theme stylesheets, filled in by app.js (see applyThemes). They come
+      Theme stylesheets, filled in by the app (js/themes.js) (see applyThemes). They come
       after style.css so they win, in this order: the app theme, its Lite
       version, the open channel's theme, and that one's Lite version.
     -->
@@ -44,10 +44,11 @@
     <link rel="stylesheet" id="theme-app-lite" />
     <link rel="stylesheet" id="theme-channel" />
     <link rel="stylesheet" id="theme-channel-lite" />
-    <!-- `defer` runs the script after the page is parsed, so every element below exists. -->
+    <!-- `defer` runs glass.js after the page is parsed, so every element below exists. The app itself is an ES
+         module (js/main.js, which imports the rest); modules are deferred too, and run after glass.js. -->
     <!-- Real refraction for liquid glass themes (see the top of glass.js). -->
     <script src="/glass.js" defer></script>
-    <script src="/app.js" defer></script>
+    <script type="module" src="/js/main.js"></script>
   </head>
   <body>
     <!-- Reusable icons, drawn once and referenced with <use href="#icon-...">. -->
@@ -121,7 +122,7 @@
     <div class="app" id="app">
       <!-- ============================================================ sidebar -->
       <nav class="sidebar surface" id="sidebar" aria-label="Channels">
-        <!-- Your servers: one per friend, usually (see src/hub.ts). Filled in by app.js. -->
+        <!-- Your servers: one per friend, usually (see src/hub.ts). Filled in by the app (js/). -->
         <div class="server-rail" id="server-rail" aria-label="Servers"></div>
         <header class="sidebar-header">
           <h1 class="server-name"><button type="button" class="server-name-button" id="server-name" title="Server settings">Kinaera</button></h1>
@@ -135,7 +136,7 @@
           </button>
         </header>
 
-        <!-- Filled in by app.js: one <li> per channel. -->
+        <!-- Filled in by the app (js/): one <li> per channel. -->
         <ul class="channel-list" id="channel-list"></ul>
 
         <footer class="sidebar-footer">
@@ -163,7 +164,7 @@
 
       <!-- ======================================================= channel view -->
       <!--
-        data-channel-id and data-channel-kind are set by app.js. They are what
+        data-channel-id and data-channel-kind are set by the app (js/channels.js). They are what
         per-channel themes (stage 3.5) will hook onto.
       -->
       <section class="channel-view" id="channel-view">
@@ -202,7 +203,7 @@
         </div>
 
         <main id="messages" class="messages" aria-live="polite">
-          <!-- Filled in by app.js. -->
+          <!-- Filled in by the app (js/). -->
         </main>
 
         <footer class="composer surface" id="composer">
@@ -628,7 +629,7 @@
 
     <!--
       The notebook: every character and piece of lore you can see, in
-      folders, and suggested changes waiting for review. Filled in by app.js.
+      folders, and suggested changes waiting for review. Filled in by the app (js/).
     -->
     <dialog id="notebook-dialog" class="dialog surface notebook">
       <h2 class="dialog-title">Notebook</h2>
@@ -1006,7 +1007,7 @@
       </form>
     </dialog>
 
-    <!-- Connection profiles and roulettes (stage 5). Filled in by app.js. -->
+    <!-- Connection profiles and roulettes (stage 5). Filled in by the app (js/). -->
     <dialog id="models-dialog" class="dialog surface">
       <h2 class="dialog-title">Profiles and roulettes</h2>
       <p class="hint">

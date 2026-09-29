@@ -35,7 +35,7 @@ The server runs a **hub** in front of one app per friend:
 | `/api/hub/...` | The hub: servers and friends |
 | Anything else (the web app, themes, and `/api/...` from older pages) | The first friend's app |
 
-The page works on one friend at a time. Its requests are prefixed with that friend (`scoped` in `public/app.js`), and the address says whose channel is open: `#/p/<friend>/channel/<id>`. Switching friends (another server in the rail, another friend's channel, a notification) reloads the page as theirs. Every 15 seconds the page also asks the hub for every friend's channels and newest messages, for the dots in the rail and the other friends' sections.
+The page works on one friend at a time. Its requests are prefixed with that friend (`scoped` in `public/js/core.js`), and the address says whose channel is open: `#/p/<friend>/channel/<id>`. Switching friends (another server in the rail, another friend's channel, a notification) reloads the page as theirs. Every 15 seconds the page also asks the hub for every friend's channels and newest messages, for the dots in the rail and the other friends' sections.
 
 ### The data folder
 

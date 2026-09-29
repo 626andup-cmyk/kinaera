@@ -224,7 +224,7 @@ export function matchRoute(route: Pick<Route, "method" | "pattern">, method: str
  * An installed app can stay open in the background for days. After you
  * update Kinaera and restart the server, that open page is still running the
  * old code. The page compares this fingerprint with the one it started with,
- * and reloads when they differ (see `checkForUpdate` in public/app.js).
+ * and reloads when they differ (see `checkForUpdate` in public/js/live.js).
  */
 export function appVersion(publicDir: string): string {
   const hasher = new Bun.CryptoHasher("sha256");

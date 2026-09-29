@@ -665,7 +665,7 @@ describe("safety", () => {
 
   test("serves the app but not files outside public/", async () => {
     expect((await call("GET", "/")).status).toBe(200);
-    expect((await call("GET", "/app.js")).status).toBe(200);
+    expect((await call("GET", "/js/main.js")).status).toBe(200);
     // %2F is an encoded "/", which the URL parser leaves alone, so this really
     // does ask for "/../package.json" (a file that exists one folder up).
     expect((await call("GET", "/..%2Fpackage.json")).status).toBe(404);

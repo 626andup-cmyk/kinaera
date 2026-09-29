@@ -12,7 +12,7 @@
  * "legend". The same marker goes between your friend's bubbles in the
  * conversation the model reads (`toChatHistory` in src/prompt.ts), so it
  * keeps mirroring the format. The app shows the bubbles one at a time, with
- * "typing…" between them (public/app.js).
+ * "typing…" between them (public/js/texting.js).
  *
  * Models aren't perfectly tidy, so the splitter forgives: `<CHT>`,
  * `< cht >`, `</cht>` and `<cht/>` all count.

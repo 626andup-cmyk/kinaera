@@ -2,7 +2,7 @@
 
 Kinaera is a Discord-style space for writing stories and hanging out with one or more AI friends: writers with their own style who play characters alongside you, using models from [nanoGPT](https://nano-gpt.com). It's designed as if the friends could be people: they get real tools to check things, ask for help and fix their own mistakes, and parts of their life that are theirs.
 
-**Status: being rebuilt from Aettica.** [KINAERA_REBUILD.md](KINAERA_REBUILD.md) is the plan, and each finished step has a doc in `docs/` ([1a](docs/rebuild-1a.md), [1b](docs/rebuild-1b.md)). Everything below works today.
+**Status: being rebuilt from Aettica.** [KINAERA_REBUILD.md](KINAERA_REBUILD.md) is the plan, and each finished step has a doc in `docs/` ([1a](docs/rebuild-1a.md), [1b](docs/rebuild-1b.md), [1c](docs/rebuild-1c.md)). Everything below works today.
 
 ## What it can do
 
@@ -135,6 +135,8 @@ src/
   config.ts    Reads settings from .env
   types.ts     The shapes of channels, messages and settings
 public/        The web app (plain HTML, CSS and JavaScript, no build step)
+  js/          The app itself, as ES modules, one per area: main.js is the starting point
+  glass.js     Real refraction for the glass themes
 themes/        Built-in themes (Classic, Frutiger Aero, Aero Glass, Liquid Glass, Liquid Glass Dark, Rainy Window)
 defaults/      Starting friend prompts and the example character
 test/          Tests

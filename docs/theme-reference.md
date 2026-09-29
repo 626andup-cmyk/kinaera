@@ -244,7 +244,7 @@ Turn it on in your `:root`, then mark which elements are lensed glass:
 glass.js also provides two things for liquid themes, in every browser:
 
 - **Goo** (`filter: url(#kinaera-goo)`): shapes that touch merge like drops of water. Both Liquid Glass themes use it on `.typing-dots`.
-- **The channel indicator** (`.channel-indicator`, in style.css and app.js): a pill that sits behind the open channel's link and flows to the next one when you switch, stretching over both links (`.stretching`) and then settling with a little overshoot (`.settling`). It's hidden unless a theme gives it `display: block`, a background and a `transition: transform ...`.
+- **The channel indicator** (`.channel-indicator`, in style.css and js/channels.js): a pill that sits behind the open channel's link and flows to the next one when you switch, stretching over both links (`.stretching`) and then settling with a little overshoot (`.settling`). It's hidden unless a theme gives it `display: block`, a background and a `transition: transform ...`.
 
 ## Hooks for theme authors
 

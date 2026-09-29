@@ -245,7 +245,7 @@ textarea {
 
 /*
  * Phones: the sidebar slides in over the channel when you tap the menu
- * button, with a dark scrim behind it. app.js toggles `sidebar-open`.
+ * button, with a dark scrim behind it. js/channels.js toggles `sidebar-open`.
  */
 @media (max-width: 799px) {
   .sidebar {
@@ -305,7 +305,7 @@ textarea {
 /*
  * A pill that sits behind the open channel's link and moves when you
  * switch channels, stretching between the two like a drop of liquid (see
- * moveChannelIndicator in app.js). Hidden unless a theme shows it: themes
+ * moveChannelIndicator in js/channels.js). Hidden unless a theme shows it: themes
  * that don't use it keep the link's own highlight.
  */
 .channel-indicator {
@@ -579,7 +579,7 @@ textarea {
 }
 
 /*
- * Each character has their own hue, set by app.js as --avatar-hue on the
+ * Each character has their own hue, set by the app (js/messages.js) as --avatar-hue on the
  * message, for their avatar and name. (Written specifically enough to beat
  * the "you" and "friend" colours above.)
  */
@@ -614,7 +614,7 @@ textarea {
 
 /*
  * Casual bubbles are short and come in bursts, so their Edit/Delete buttons
- * only appear on hover or when you tap the bubble (app.js toggles
+ * only appear on hover or when you tap the bubble (the app toggles
  * `selected`). The last reply's buttons, with Regenerate, always show.
  */
 .message[data-mode="casual"] .message-actions:not(.always) {
@@ -848,7 +848,7 @@ textarea {
 
 .composer-input {
   resize: none;
-  max-height: 40vh; /* app.js grows the box as you type, up to this height */
+  max-height: 40vh; /* js/composer.js grows the box as you type, up to this height */
 }
 
 .status {
