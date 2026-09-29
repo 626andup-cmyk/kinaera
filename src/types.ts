@@ -1,0 +1,579 @@
+/**
+ * Shared data shapes for Kinaera.
+ *
+ * Everything the server saves or sends to the browser is described here, so
+ * this file doubles as a map of the data model. Each stage grows it:
+ * stage 2 added channels and message authorship; stage 3 added scene breaks
+ * and channel modes; stage 3.5 added themes; stage 4 added the notebook and
+ * the cast; and so on.
+ *
+ * How these shapes are stored in the database is in `src/db.ts`.
+ */
+
+/**
+ * Who wrote a message.
+ *
+ * - `"user"`: you.
+ * - `"friend"`: your AI RP friend.
+ */
+export type Author = "user" | "friend";
+
+/**
+ * What a channel is for.
+ *
+ * - `"rp"`: a storyline. Its cast is the notebook entries pinned to it: your
+ *   friend writes their characters (and shared ones), you write yours.
+ * - `"ooc"`: out of character. Your friend talks to you as themselves, like
+ *   a friend, and can see which storylines exist on the server.
+ */
+export type ChannelKind = "rp" | "ooc";
+
+/**
+ * How an RP channel is written and shown (see "Channel modes" in DESIGN.md).
+ *
+ * - `"literary"`: your friend writes one prose post per turn, which may
+ *   cover several characters. Shown as wide prose blocks.
+ * - `"casual"`: short in-character messages, one character per bubble,
+ *   like a group chat. You post as one of your characters.
+ *
+ * A mode change waits for the next scene break, so a scene never mixes
+ * styles.
+ */
+export type ChannelMode = "literary" | "casual";
+
+/**
+ * What an item in a channel is.
+ *
+ * - `"post"`: an ordinary message.
+ * - `"scene_break"`: a divider between scenes. Its `content` is the scene's
+ *   title, which may be empty.
+ */
+export type MessageKind = "post" | "scene_break";
+
+// ------------------------------------------------------------- notebook
+
+/**
+ * Who something in the notebook belongs to. Only the owner changes its
+ * settings (see `src/permissions.ts`).
+ *
+ * - `"user"`: you.
+ * - `"friend"`: your friend.
+ * - `"joint"`: shared lore. Always visible to both, and always
+ *   suggest-only: changes go through a suggestion the other person reviews.
+ */
+export type Owner = "user" | "friend" | "joint";
+
+/** Whether the *other* person (not the owner) can see an entry. */
+export type Visibility = "visible" | "hidden";
+
+/**
+ * What the *other* person (not the owner) may do to an entry's contents:
+ *
+ * - `"open"`: edit it directly.
+ * - `"suggest"`: suggest changes, which the owner accepts or rejects.
+ * - `"locked"`: nothing.
+ */
+export type Editing = "open" | "suggest" | "locked";
+
+/** Characters can be in a channel's cast and voice messages; lore can't. */
+export type EntryKind = "character" | "lore";
+
+/** One labelled field of an entry, e.g. `{ label: "Age", value: "34" }`. */
+export interface EntryField {
+  label: string;
+  value: string;
+}
+
+/**
+ * A folder of entries. Its visibility and editing settings pass down to the
+ * entries in it, unless an entry sets its own.
+ */
+export interface NotebookFolder {
+  id: string;
+  name: string;
+  owner: Owner;
+  visibility: Visibility;
+  editing: Editing;
+  position: number;
+  createdAt: string;
+}
+
+/** One notebook entry: a character or a piece of lore. */
+export interface NotebookEntry {
+  id: string;
+  kind: EntryKind;
+  /** The entry's title: the character's name, or the lore's subject. */
+  name: string;
+  /** Xoul-style labelled fields, in order. */
+  fields: EntryField[];
+  /**
+   * Optional instructions for your friend, added to the prompt whenever
+   * this entry is in play (e.g. "Ilse never raises her voice").
+   */
+  systemPrompt: string;
+  /**
+   * Your characters only: a short proxy tag for casual scenes, e.g. `k`, so
+   * `k: *waves*` posts as this character. `null` if none.
+   */
+  proxyPrefix: string | null;
+  /** The folder it's in, or `null` for none. */
+  folderId: string | null;
+  owner: Owner;
+  /** Its own visibility, or `null` to use its folder's. */
+  visibility: Visibility | null;
+  /** Its own editing setting, or `null` to use its folder's. */
+  editing: Editing | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * The settings that actually apply to an entry, after folder inheritance
+ * and the rules for shared lore. Worked out by `effectiveSettings`.
+ */
+export interface EffectiveSettings {
+  owner: Owner;
+  visibility: Visibility;
+  editing: Editing;
+}
+
+/** What a suggestion would change: any of these, or deleting the entry. */
+export interface SuggestedChange {
+  name?: string;
+  fields?: EntryField[];
+  systemPrompt?: string;
+  delete?: true;
+}
+
+/**
+ * A suggested change to an entry you can't edit directly: shown to the
+ * owner as a before/after comparison to accept or reject.
+ */
+export interface Suggestion {
+  id: string;
+  entryId: string;
+  /** Who suggested it. */
+  author: Author;
+  change: SuggestedChange;
+  status: "pending" | "accepted" | "rejected" | "withdrawn";
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
+/**
+ * Someone in a channel's cast, as one person sees them. If the entry is
+ * hidden from that person, only `hidden: true` and a placeholder name are
+ * given away.
+ */
+/**
+ * Who plays a character: you, your friend, or either of you (shared
+ * characters).
+ */
+export type Player = Author | "both";
+
+export interface CastMember {
+  entryId: string;
+  /** The character's name, or "??? (hidden)". */
+  name: string;
+  /** Who plays them (see `playedBy` in src/permissions.ts). */
+  playedBy: Player;
+  owner: Owner;
+  /** Characters make up the cast; lore can be pinned too, for reference. */
+  kind: EntryKind;
+  /** Hidden from the person looking. */
+  hidden: boolean;
+  proxyPrefix: string | null;
+}
+
+/** A channel: one storyline, or one out-of-character conversation. */
+export interface Channel {
+  /** Unique id, generated when the channel is created. */
+  id: string;
+  /** Display name, shown with a `#` in front. */
+  name: string;
+  /** RP or OOC. Chosen when the channel is created and never changed. */
+  kind: ChannelKind;
+  /**
+   * RP channels only: the mode of the current scene. (Stored for OOC
+   * channels too, but ignored.)
+   */
+  mode: ChannelMode;
+  /**
+   * A mode change waiting for the next scene break, or `null` if none.
+   * Changing mode in the middle of a scene sets this instead of `mode`.
+   */
+  pendingMode: ChannelMode | null;
+  /**
+   * The channel's own theme (a theme id), or `null` to use the app theme.
+   * It only restyles the channel itself; see `src/themes.ts`.
+   */
+  theme: string | null;
+  /**
+   * The profile or roulette that writes here, overriding the server-wide
+   * one for this kind of channel (see `Settings.rpAssignment`), or `null`.
+   */
+  assignment: string | null;
+  /** Where the channel sits in the sidebar: 0 is the top (channels are ordered together, then grouped by category). */
+  position: number;
+  /** The category it's in, or `null` for none (listed above the categories). */
+  categoryId: string | null;
+  /** When the channel was created, as an ISO 8601 timestamp. */
+  createdAt: string;
+}
+
+/**
+ * One item in a channel: a message, or a scene break.
+ *
+ * Scene breaks live alongside messages so that the two stay in order. A
+ * scene break's `author` is whoever made it, and its `content` is its title.
+ */
+export interface Message {
+  /** Unique id, generated when the message is created. */
+  id: string;
+  /** The channel the message belongs to. */
+  channelId: string;
+  /** A message, or a scene break. */
+  kind: MessageKind;
+  author: Author;
+  /** The message text (or a scene break's title), exactly as written or returned by the model. */
+  content: string;
+  /**
+   * RP channels only: the mode the message was written in, which is how it's
+   * displayed and sent to the model. `null` in OOC channels and for scene
+   * breaks.
+   */
+  mode: ChannelMode | null;
+  /**
+   * Messages written together share a turn id: all the bubbles of one
+   * friend reply in casual mode, or several lines you sent at once.
+   * Regenerating replaces the whole turn. `null` for older messages.
+   */
+  turnId: string | null;
+  /**
+   * The character(s) this message voices. Empty for narration, OOC chat,
+   * your literary posts, and scene breaks.
+   */
+  characters: string[];
+  /** When the message was created, as an ISO 8601 timestamp. */
+  createdAt: string;
+  /** When the message was last edited, if ever. */
+  editedAt?: string;
+  /** For friend messages: which model wrote it. */
+  model?: string;
+  /**
+   * For friend messages: the name of the connection profile that wrote it,
+   * as it was called at the time (profiles can be renamed or deleted later).
+   */
+  profile?: string;
+  /**
+   * Ids of notebook entries you attached to this message: they're sent to
+   * your friend in full while the message is in the conversation.
+   */
+  attachments: string[];
+  /** Emoji reactions on it, from you and your friend, oldest first (see src/reactions.ts). */
+  reactions: Reaction[];
+}
+
+/**
+ * Settings that apply to the whole server, changed from the settings panel.
+ * Per-channel settings (name, character) live on `Channel` instead.
+ */
+export interface Settings {
+  /** Your friend's name, shown on their OOC messages. */
+  friendName: string;
+  /**
+   * Layer 1 of the prompt stack, in every channel: who your friend is.
+   * This describes the *writer*, not a character they play.
+   */
+  friendPrompt: string;
+  /**
+   * Layer 2, per kind of channel: how your friend writes there. Each is
+   * only sent in its own kind of channel, so instructions for one (long
+   * prose posts) never leak into another (short OOC chat).
+   */
+  literaryPrompt: string;
+  /** How your friend writes casual scenes (see `literaryPrompt`). */
+  casualPrompt: string;
+  /** How your friend talks out of character (see `literaryPrompt`). */
+  oocPrompt: string;
+  /**
+   * Which connection profile or roulette writes each job, server-wide:
+   * `"profile:<id>"`, `"roulette:<id>"`, or `""` for the first profile.
+   * A channel can override its own (`Channel.assignment`).
+   */
+  rpAssignment: string;
+  /** See `rpAssignment`. OOC chat prefers tool-capable profiles. */
+  oocAssignment: string;
+  /** The app theme's id (see `src/themes.ts`). "classic" is the default look. */
+  appTheme: string;
+  /**
+   * Where you've moved a theme's sliders (see `ThemeOption` in
+   * src/themes.ts), by theme id, then option id. Options you haven't moved
+   * use the theme's defaults.
+   */
+  themeOptions: Record<string, Record<string, number>>;
+  /**
+   * How many of the most recent messages in a channel are always sent to
+   * the model in full. Older ones are remembered through summaries
+   * (stage 7, see src/summaries.ts).
+   */
+  historyLimit: number;
+  /** Whether summaries are written (stage 7). Off: older messages are simply left out. */
+  summaries: boolean;
+  /**
+   * How many messages may pile up beyond `historyLimit` before they're
+   * folded into the summary of the scene (or OOC conversation) they belong
+   * to. Until then they're sent in full, so nothing is ever left out.
+   */
+  summaryEvery: number;
+  /**
+   * Which profile or roulette writes summaries (see `rpAssignment`), or ""
+   * for the one that writes roleplay.
+   */
+  summaryAssignment: string;
+
+  // Stage 8: decisions (Jev) and wake-ups.
+
+  /** Jev's model id on nanoGPT (pinned, like `typesafe/jev-1.13`), or "" to turn Jev off. */
+  decisionModel: string;
+  /** A profile asked instead when Jev fails (`"profile:<id>"`), or "" for none. */
+  decisionFallback: string;
+  /** How sure a decision has to be to count as a yes or a no (0.5 to 0.99). Unsure takes the safe path. */
+  decisionConfidence: number;
+  /**
+   * How readily your friend takes a turn on their own (a wake-up):
+   *
+   * - `off`: never.
+   * - `quiet`: when you come back after being away, and to review your suggestions.
+   * - `normal`: also when you end a scene.
+   * - `chatty`: also whenever you open the app.
+   */
+  wakeups: Chattiness;
+  /** Opening the app after this many hours without writing counts as "you've been away". */
+  awayHours: number;
+  /** The least time between two wake-ups, in minutes. */
+  wakeCooldownMinutes: number;
+  /** Quiet hours, when your friend never reaches out: from this hour (0–23), or -1 for none. */
+  quietStart: number;
+  /** ...to this hour (0–23). */
+  quietEnd: number;
+
+  // The notebook keeper (src/keeper.ts).
+
+  /** Whether the notebook keeper notes new characters, places and lasting facts from roleplay. */
+  notebookKeeper: boolean;
+  /** How many new posts in a roleplay channel before the keeper looks at them (a scene ending always counts). */
+  keeperEvery: number;
+  /**
+   * How often the heartbeat looks for a reason to reach out, in hours
+   * (roughly: each gap varies by ±20%). 0 turns it off. See src/heartbeat.ts.
+   */
+  heartbeatHours: number;
+  /** Your friend's avatar: an emoji, or "" for their initial. */
+  friendAvatar: string;
+  /** Their colour, as a hue (0–359), or -1 for the theme's accent. */
+  friendColor: number;
+  /** OOC: your friend texts in short bubbles (split at `<cht>`), shown one at a time. */
+  oocBubbles: boolean;
+  /** How long a bubble takes to "type": `typingBaseMs + characters × typingPerCharMs` (as in Kitsikai). */
+  typingBaseMs: number;
+  typingPerCharMs: number;
+  /** OOC, with bubbles: how long your friend waits after your last bubble before answering (ms). 0: at once. */
+  replyDelayMs: number;
+  /** Whether Jev double-checks guesses: comment replies, deleting entries, summaries, channel mentions (src/judge.ts). */
+  jevChecks: boolean;
+}
+
+/** How readily your friend reaches out on their own (see `Settings.wakeups`). */
+export type Chattiness = "off" | "quiet" | "normal" | "chatty";
+
+/**
+ * One message in the format the chat completions API expects.
+ *
+ * nanoGPT speaks the same API as OpenAI, where every message has a role:
+ * `system` for instructions, `user` for the human, `assistant` for the model.
+ * With tools (stage 6), an assistant message can also ask for tool calls,
+ * and each call's result comes back as a `tool` message.
+ */
+export type ChatMessage =
+  | { role: "system" | "user" | "assistant"; content: string }
+  | { role: "tool"; content: string; tool_call_id: string };
+
+/**
+ * A message as sent to the API, which also covers a reply that only called
+ * tools: its content is `null` (some providers reject an empty string there).
+ */
+export type ApiMessage = ChatMessage | { role: "assistant"; content: string | null; tool_calls: ApiToolCall[] };
+
+/** A tool call as the API writes it inside an assistant message. */
+export interface ApiToolCall {
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+}
+
+// ------------------------------------------------------------ stage 5
+
+/** How hard a reasoning model thinks before answering (`null`: the model's default). */
+export type ReasoningEffort = "low" | "medium" | "high";
+
+/** What a turn is for: roleplay writing, or OOC chat. */
+export type Job = "rp" | "ooc";
+
+/**
+ * A connection profile: one model and its settings (see `src/profiles.ts`).
+ * It changes how your friend's words are produced, never who they are.
+ */
+export interface Profile {
+  id: string;
+  /** Your name for it, e.g. "DeepSeek, warm". */
+  name: string;
+  /** nanoGPT model id, e.g. `deepseek-ai/DeepSeek-V3.1-Terminus`. */
+  model: string;
+  /** Sampling temperature: higher is more varied. Most models like 0.7 to 1.1. */
+  temperature: number;
+  /** Upper limit on one reply's length, in tokens. */
+  maxTokens: number;
+  /** Nucleus sampling, or `null` to leave it to the model. */
+  topP: number | null;
+  reasoningEffort: ReasoningEffort | null;
+  /** Whether the model can call tools (stage 6). Turns on it are given tools only if so. */
+  supportsTools: boolean;
+  /** Layer 4 of the prompt stack: notes that tame this model's habits. */
+  quirkPrompt: string;
+  /** More request fields, as a JSON object in text (e.g. `{"top_k": 40}`), or "". */
+  extraParams: string;
+  position: number;
+  createdAt: string;
+}
+
+/** A weighted set of profiles; each turn picks one (see `src/profiles.ts`). */
+export interface Roulette {
+  id: string;
+  name: string;
+  entries: { profileId: string; weight: number }[];
+  position: number;
+  createdAt: string;
+}
+
+// ------------------------------------------------------------ stage 6
+
+/**
+ * One tool call your friend made during a turn, as kept in the tool log
+ * (see `src/activity.ts`).
+ */
+export interface ToolCallRecord {
+  id: string;
+  channelId: string;
+  /** The turn it belongs to: the same id as the messages that turn wrote. */
+  turnId: string;
+  /** Which round of the turn (a model can call tools, see results, and call more). */
+  round: number;
+  name: string;
+  /** The arguments exactly as the model wrote them. */
+  arguments: string;
+  /** What was sent back to the model, as JSON text. */
+  result: string;
+  status: "ok" | "error";
+  /** For people: "pinned Tamsin to #story". For errors, what went wrong. */
+  summary: string;
+  /**
+   * `native` if the API returned it as a tool call; `text` if it was written
+   * out in the reply; `keeper` for the notebook keeper's changes (src/keeper.ts).
+   */
+  source: "native" | "text" | "keeper";
+  profile: string | null;
+  createdAt: string;
+}
+
+/** One comment on a message. The first comment of a thread holds its quote. */
+export interface Comment {
+  id: string;
+  messageId: string;
+  /** The id of the thread's first comment (its own id, for the first). */
+  threadId: string;
+  author: Author;
+  /** The highlighted text (first comment only; "" for the whole message). */
+  quote: string;
+  note: string;
+  createdAt: string;
+}
+
+/** A thread of comments on one part of a message. */
+export interface CommentThread {
+  id: string;
+  messageId: string;
+  quote: string;
+  resolved: boolean;
+  comments: Comment[];
+}
+
+/** Something your friend asked you to approve (other than notebook suggestions). */
+export interface Proposal {
+  id: string;
+  kind: "delete_channel";
+  targetId: string;
+  targetName: string;
+  reason: string;
+  status: "pending" | "approved" | "denied";
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
+// ------------------------------------------------------------ stage 7
+
+/**
+ * The kinds of summary (see src/summaries.ts):
+ *
+ * - `scene`: one finished scene, keyed by the scene break that ended it.
+ * - `story`: the story so far, folded together from the scene summaries.
+ * - `current`: the older part of the scene still going (in OOC, of the
+ *   whole conversation), keyed by the scene break that started it.
+ * - `digest`: one or two lines about the channel, for OOC.
+ */
+export type SummaryKind = "scene" | "story" | "current" | "digest";
+
+export interface Summary {
+  channelId: string;
+  kind: SummaryKind;
+  /** For `scene`, the break that ended it; for `current`, the break that started it ("" for the first scene). */
+  sceneId: string;
+  content: string;
+  /** The newest message (by its position, `seq`) it covers. */
+  throughSeq: number;
+  /** Messages it covers were edited or deleted since: it'll be rewritten. */
+  stale: boolean;
+  /** You wrote or edited it: it's kept as you left it. */
+  edited: boolean;
+  updatedAt: string;
+}
+
+/** A channel's summaries, as the app shows them. */
+export interface ChannelSummaries {
+  /** Scene summaries, by the id of the scene break that ended the scene. */
+  scenes: Record<string, Summary>;
+  story: Summary | null;
+  current: Summary | null;
+  digest: Summary | null;
+  /** Whether summaries are being written for the channel right now. */
+  running: boolean;
+  /** The last error writing them, if the last attempt failed. */
+  error: string | null;
+}
+
+/** An emoji reaction on a message: a Unicode emoji, or `:name:` of a custom one. */
+export interface Reaction {
+  emoji: string;
+  author: Author;
+}
+
+/** A named, collapsible group of channels in the sidebar. */
+export interface Category {
+  id: string;
+  name: string;
+  /** Where it sits among the categories: 0 is the top. */
+  position: number;
+  /** Folded up in the sidebar. */
+  collapsed: boolean;
+  createdAt: string;
+}

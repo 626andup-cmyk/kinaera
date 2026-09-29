@@ -1,0 +1,153 @@
+# Kinaera
+
+Kinaera gives you an AI **RP friend**, not a character: a writer with their own style who plays characters alongside you. The full vision is in [DESIGN.md](DESIGN.md).
+
+**Status: all 8 stages and the endgame features are built.** A Discord-style server of channels with your friend, with scenes, literary or casual styles, themes, a shared notebook of characters and lore, a mix of models, and a friend who can act through tools, using models from [nanoGPT](https://nano-gpt.com). How it works inside: [stage 1](docs/stage-1.md) (server, API calls, prompts), [stage 2](docs/stage-2.md) (database, channels), [stage 3](docs/stage-3.md) (scenes, modes), [stage 3.5](docs/stage-3.5.md) (themes), [stage 4](docs/stage-4.md) (the notebook and permissions), [stage 5](docs/stage-5.md) (connection profiles and roulettes), [stage 6](docs/stage-6.md) (tools, approvals, comments, and troubleshooting tool calls), [stage 7](docs/stage-7.md) (summaries and the server digest) and [stage 8](docs/stage-8.md) (your friend reaching out, and Jev).
+
+## What it can do
+
+- **Friends and servers**: as many friends as you like, each a different person with their own memory (notebook, secrets, channels, ideas, settings) and usually a server of their own, in a rail on the left. A server can hold several friends. Each friend has their own menu (tap the friend card): name, emoji avatar, colour, who they are, how they write, and 🎲 Surprise me. See [friends and servers](docs/friends.md).
+- **Channels**: create, rename and delete them from the sidebar, group them into collapsible **categories**, and **drag** to rearrange (press and hold on a phone). See [categories](docs/categories.md).
+  - **Roleplay** channels are storylines. Each has its own cast: characters and lore pinned from the notebook.
+  - **Out-of-character** channels are for talking with your friend as themselves. They know which storylines exist.
+- **Notebook** (the book button): characters and lore, with labelled fields, notes for your friend, and `[[links]]` between entries.
+  - Each entry is yours, your friend's, or shared. Your friend plays their characters, you play yours, and either of you can play shared ones.
+  - You choose whether your friend can see each of your entries, and whether they can edit it, only suggest changes, or only read it. Folders pass these settings to the entries in them.
+  - Your friend's secrets show as "??? (hidden)" in a cast: they know, you don't (yet).
+- **Scenes**: type `=====` (or `===== Title`) or press ⁂ to start a new scene. Scenes are divided by a titled line.
+- **Long stories**: your friend reads the newest messages in full and remembers the rest through summaries: of each scene when it ends (press **Summary** under a scene break), the story so far, and a line or two per channel that OOC reads. Read and edit them in channel settings → Memory. Summaries are written only from the messages, so nothing hidden from you is ever in them.
+- **Two styles** per roleplay channel. A change of style waits for the next scene, so a scene never mixes them.
+  - **Literary**: your friend writes prose posts, shown as wide blocks of text.
+  - **Casual**: short in-character bubbles, one character each, like a group chat. You post as your own characters (from the notebook) with proxy tags (`k: *waves*`) or the "Posting as" menu, like Tupperbox.
+- Every message records who wrote it, which character it voices, and which profile and model generated it.
+- Edit the **friend prompts**: who your friend is (used everywhere), and how they write in literary scenes, in casual scenes, and out of character. Each channel only gets the one for its own kind, so OOC chat stays short even if your literary style is long. Also how many recent messages the friend sees.
+- **Connection profiles and roulettes** (Settings → Profiles and roulettes): a profile is a model with its settings and its own "model notes"; a roulette picks one of several profiles at random each turn, by weight. Choose what writes roleplay and OOC, and override it per channel.
+- **Your friend acts**, if their profile can use tools: they read the notebook, make and edit entries, pin characters, make channels, start scenes, comment on messages, review your suggestions, or choose not to reply. What they did shows under their message. Each profile has a **Test tools** button, and each channel a **tool log**, for when a model gets it wrong.
+- **Jev double-checks** the guesses Kinaera makes: comment replies, your friend deleting or changing your things, summaries, which channel came up. See [the Jev audit](docs/jev-audit.md).
+- **Notebook keeper**: every few posts, your friend notes new characters, places and lasting facts in the notebook, after Jev checks each one against the messages. See [the notebook keeper](docs/notebook-keeper.md).
+- **Reference library** (Notebook → Library): upload long texts like a film's script or a book for a fandom. Your friend searches them and reads the passages they need, instead of guessing; nothing is sent whole. See [the library](docs/library.md).
+- **Attach notes** to a message with the paperclip, or write `[[Name]]` in it: your friend gets those entries in full.
+- **Reactions**: react to messages with emojis, and your friend reacts too. Upload **custom emojis** and use them as `:name:`. See [reactions](docs/reactions.md).
+- **Comments**: select text in a message to comment on it; your friend replies in the thread.
+- **Inbox** (the tray at the top of the channel list): your friend's proposals and suggested changes, to approve or reject.
+- **Texting in OOC**: your friend texts in short bursts that arrive one at a time with "typing…", and waits for you to pause before answering. **🎲 Surprise me** invents a new friend (in the friend menu, or when you make one). See [texting](docs/texting.md).
+- **Heartbeat** (off by default): now and then, even with the app closed, your friend comes up with ideas, Jev grades them, and they text you the best one, with a phone notification. The rest wait in their **idea drawer** for a better moment. See [the heartbeat](docs/heartbeat.md).
+- **Your friend reaches out**: when you come back after a while, when a scene ends, or when a suggestion is waiting for them, your friend may write to you in OOC first. Jev, a small decision model, checks it's the moment first, and chattiness, quiet hours and a cooldown keep it from being too much (Settings → Your friend reaching out, with a log of every wake-up). A dot marks channels with messages you haven't seen.
+- **Friend's turn**: let your friend write without a new message from you, including opening an empty channel.
+- **Stop** a reply that's taking too long. Nothing is saved, and the channel is free again.
+- **Regenerate** the friend's last reply (or **Regenerate with…** a particular profile), **edit** or **delete** any message.
+- **Preview prompt**: see exactly what the model receives on the next turn in a channel.
+- **Themes**: pick one in Appearance (the palette button). Classic, Frutiger Aero, Aero Glass, Liquid Glass, Liquid Glass Dark and Rainy Window (a night city through a window of raindrops that slide down and drift as you scroll, with glossy liquid glass bubbles) are built in. The Liquid Glass themes and Rainy Window's bubbles are real refracting glass, like Apple's: what's behind bends and splits into rainbows at the edges of each pane (in Chrome, including on Android). Themes can offer sliders in Appearance, like Rainy Window's bubble transparency or Liquid Glass's refraction. Any channel can have its own theme, and you can copy a theme and edit its CSS and images right in the app. Glass effects can be Full, Lite (easier on the phone) or Automatic. See the [theme reference](docs/theme-reference.md).
+- Install it to your home screen as an app (PWA).
+
+If you used stage 1, your chat is moved into the `#story` channel automatically the first time stage 2 starts. Characters from before stage 4 are moved into the notebook automatically.
+
+## Running it
+
+You need [Bun](https://bun.sh) and a nanoGPT API key.
+
+```sh
+# 1. Get the code and install the development tools (only needed for tests and type checking)
+git clone https://github.com/626andup-cmyk/kinaera.git
+cd kinaera
+bun install
+
+# 2. Add your API key
+cp .env.example .env
+#    then edit .env and set NANOGPT_API_KEY=...
+
+# 3. Start the server
+bun start
+```
+
+Then open <http://127.0.0.1:4747> in your browser.
+
+### On your phone (Termux)
+
+The server is designed to run in [Termux](https://termux.dev) on the phone you chat from:
+
+1. Install Bun inside Termux. If the installer from bun.sh doesn't work on your phone, run it inside a Linux environment set up with `proot-distro` instead.
+2. Follow the steps above, then run `bun start` and leave Termux open.
+3. Open <http://127.0.0.1:4747> in Chrome, then choose **menu → Add to Home screen** (or **Install app**). Kinaera now opens like an app.
+
+The app only works while the server is running. If it says it can't connect, start the server in Termux again.
+
+**Notifications and the heartbeat.** For phone notifications when your friend writes on their own, install the **Termux:API** app and run `pkg install termux-api` in Termux. With the heartbeat on (Settings → Your friend reaching out), the server takes a wake lock so the phone doesn't pause it; also turn off battery optimization for Termux (Android Settings → Apps → Termux → Battery → Unrestricted).
+
+### Settings in `.env`
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `NANOGPT_API_KEY` | none (required) | Your nanoGPT API key |
+| `HOST` | `127.0.0.1` | Where the server listens. The default means only this device can connect. |
+| `PORT` | `4747` | Port for the web app (not 3000, so it can run next to Kitsikai) |
+| `DATA_DIR` | `./data` | Where your data is saved |
+| `NANOGPT_BASE_URL` | `https://nano-gpt.com/api/v1` | API address (only change this for testing) |
+| `REQUEST_TIMEOUT_SECONDS` | `180` | How long to wait for a reply before giving up |
+
+Everything else (prompt, model, characters and so on) is changed in the app.
+
+## Your data
+
+Everything is saved in the `data/` folder. Your first friend's chat and settings are in an SQLite database, `data/kinaera.db`. Each other friend has their own folder, `data/friends/<id>/`. Your own themes are in `data/themes/`, and the list of servers is `data/hub.json` (see [friends and servers](docs/friends.md)). To back up, stop the server and copy the whole `data/` folder. (While the server is running, the database's recent changes are also in `kinaera.db-wal` and `kinaera.db-shm`, so copy those too.) The `data/` folder and `.env` are never committed to git.
+
+Kinaera has no login. Keep `HOST` at `127.0.0.1` so that nobody else on your Wi-Fi can open your chat.
+
+## Development
+
+```sh
+bun run dev        # start the server, restarting whenever a file changes
+bun test           # run the tests (they use a fake nanoGPT, so no key or credit is needed)
+bun run typecheck  # check the TypeScript types
+```
+
+Project layout:
+
+```
+src/
+  server.ts    HTTP server: API routes and serving the web app
+  friend.ts   The one "friend takes a turn" function
+  prompt.ts    Builds the prompt stack sent to the model
+  posts.ts     Turns text into messages: posts, replies, scene breaks
+  tools.ts     Your friend's tools: what each does, run as your friend
+  toolcalls.ts Reading tool calls, including broken or written-as-text ones
+  profiles.ts  Connection profiles and roulettes
+  activity.ts  The tool log, comment threads, and proposals
+  summaries.ts Summaries: storing them, splitting scenes, what the prompt still needs
+  summarizer.ts  Writes summaries in the background as channels change
+  wakeups.ts   Your friend waking up when something happens (stage 8)
+  jev.ts       Asking Jev, the decision model, yes-or-no questions (and series of them)
+  keeper.ts    The notebook keeper: noting what the story establishes
+  judge.ts     Jev's double-checks on the guesses Kinaera makes
+  hub.ts       Friends and servers: one app per friend, each with their own memory
+  heartbeat.ts The heartbeat: ideas, graded, and shared at the right moment
+  ideas.ts     The idea drawer
+  notify.ts    Phone notifications (Termux)
+  texting.ts   Texting in OOC: splitting replies into texts
+  rng.ts       "Surprise me": a random friend
+  jevlog.ts    The Jev log: every call from the last 36 hours
+  json.ts      Finding JSON in a model's reply
+  reactions.ts Emoji reactions and custom emojis
+  library.ts   The reference library: splitting long texts into passages, and searching them
+  notebook.ts  The notebook: entries, folders, suggestions and each channel's cast
+  permissions.ts  Who can see, edit and manage each notebook entry
+  sheets.ts    Reads a plain-text character sheet into labelled fields
+  bubbles.ts   Splits casual text into one-character bubbles
+  themes.ts    Themes: storing, editing, serving and scoping them
+  nanogpt.ts   Talks to nanoGPT's API
+  db.ts        The database's tables, and upgrading them (migrations)
+  store.ts     Reading and writing channels, messages and settings
+  errors.ts    Errors the server turns into 404, 400 and 403 answers
+  legacy.ts    Moving a stage 1 chat into the database
+  config.ts    Reads settings from .env
+  types.ts     The shapes of channels, messages and settings
+public/        The web app (plain HTML, CSS and JavaScript, no build step)
+themes/        Built-in themes (Classic, Frutiger Aero, Aero Glass, Liquid Glass, Liquid Glass Dark, Rainy Window)
+defaults/      Starting friend prompts and character sheet
+test/          Tests
+docs/          How things work, stage by stage, and the theme reference
+```
+
+## Licence
+
+[GNU AGPL v3](LICENSE).

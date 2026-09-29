@@ -1,0 +1,1366 @@
+<!doctype html>
+<!--
+  Kinaera's single page. The layout is:
+
+    .app
+      .sidebar          server name, channel list, your friend + settings
+      .sidebar-scrim    dark overlay behind the sidebar on phones
+      .channel-view     the open channel:
+        .channel-header   channel name, cast, channel settings
+        .messages         the message list
+        .composer         your text box, Send, and "Friend's turn"
+    dialogs             settings, channel settings, new channel, notebook,
+                        entry, folder, appearance, theme editor, prompt preview
+
+  All behaviour lives in app.js; all styling in style.css.
+
+  Theme-ready: every styled element has a descriptive class a theme can
+  target, and elements with the `surface` class (panels you look *through*
+  in a glass theme) never use ::before or ::after in the base styles, so
+  themes are free to use them for highlights and glows. See
+  docs/theme-reference.md.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!-- viewport-fit=cover lets the app use the whole screen on phones with notches. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Kinaera</title>
+    <meta name="description" content="Roleplay with your AI writing friend." />
+    <meta name="theme-color" content="#1e1f22" />
+
+    <!-- PWA: these let you "Add to Home screen" and open Kinaera like an app. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+
+    <link rel="stylesheet" href="/style.css" />
+    <!--
+      Theme stylesheets, filled in by app.js (see applyThemes). They come
+      after style.css so they win, in this order: the app theme, its Lite
+      version, the open channel's theme, and that one's Lite version.
+    -->
+    <link rel="stylesheet" id="theme-app" />
+    <link rel="stylesheet" id="theme-app-lite" />
+    <link rel="stylesheet" id="theme-channel" />
+    <link rel="stylesheet" id="theme-channel-lite" />
+    <!-- `defer` runs the script after the page is parsed, so every element below exists. -->
+    <!-- Real refraction for liquid glass themes (see the top of glass.js). -->
+    <script src="/glass.js" defer></script>
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <!-- Reusable icons, drawn once and referenced with <use href="#icon-...">. -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <symbol id="icon-gear" viewBox="0 0 24 24">
+        <path
+          fill="currentColor"
+          d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5ZM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z"
+        />
+      </symbol>
+      <symbol id="icon-hash" viewBox="0 0 24 24">
+        <path
+          fill="currentColor"
+          d="M10 3 9.3 8H5v2h4l-.6 4H4v2h4.1l-.7 5h2l.7-5h4l-.7 5h2l.7-5H20v-2h-3.9l.6-4H21V8h-4l.7-5h-2L15 8h-4l.7-5h-2Zm.9 7h4l-.6 4h-4l.6-4Z"
+        />
+      </symbol>
+      <symbol id="icon-ooc" viewBox="0 0 24 24">
+        <path
+          fill="currentColor"
+          d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm3 6.5a1.5 1.5 0 1 0 0 .01Zm5 0a1.5 1.5 0 1 0 0 .01Zm5 0a1.5 1.5 0 1 0 0 .01Z"
+        />
+      </symbol>
+      <symbol id="icon-plus" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5Z" />
+      </symbol>
+      <symbol id="icon-scene" viewBox="0 0 24 24">
+        <!-- Three stars: a scene break (an asterism, ⁂). -->
+        <path
+          fill="currentColor"
+          d="M12 3.5l1.2 2.5 2.7.3-2 1.9.5 2.7L12 9.6l-2.4 1.3.5-2.7-2-1.9 2.7-.3L12 3.5Zm-5 9l1.2 2.5 2.7.3-2 1.9.5 2.7L7 18.6l-2.4 1.3.5-2.7-2-1.9 2.7-.3L7 12.5Zm10 0l1.2 2.5 2.7.3-2 1.9.5 2.7-2.4-1.3-2.4 1.3.5-2.7-2-1.9 2.7-.3 1.2-2.5Z"
+        />
+      </symbol>
+      <symbol id="icon-palette" viewBox="0 0 24 24">
+        <path
+          fill="currentColor"
+          d="M12 3a9 9 0 0 0 0 18c1.1 0 1.8-.8 1.8-1.8 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8Zm-5.5 9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm3-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm3 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Z"
+        />
+      </symbol>
+      <symbol id="icon-book" viewBox="0 0 24 24">
+        <!-- An open notebook. -->
+        <path
+          fill="currentColor"
+          d="M3 5.5C5.6 4.3 8.9 4.3 11 6v14c-2.1-1.6-5.4-1.6-8-.4V5.5Zm18 0v14.1c-2.6-1.2-5.9-1.2-8 .4V6c2.1-1.7 5.4-1.7 8-.5Z"
+        />
+      </symbol>
+      <symbol id="icon-inbox" viewBox="0 0 24 24">
+        <!-- A tray: things waiting for you to approve. -->
+        <path
+          fill="currentColor"
+          d="M5 4h14l2 9v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-6l2-9Zm1.6 2-1.5 7H9a3 3 0 0 0 6 0h3.9l-1.5-7H6.6Z"
+        />
+      </symbol>
+      <symbol id="icon-clip" viewBox="0 0 24 24">
+        <!-- A paperclip: attach notes to your message. -->
+        <path
+          fill="currentColor"
+          d="M16.5 6v11.5a4.5 4.5 0 0 1-9 0V5a3 3 0 0 1 6 0v10.5a1.5 1.5 0 0 1-3 0V6H9v9.5a3 3 0 0 0 6 0V5a4.5 4.5 0 0 0-9 0v12.5a6 6 0 0 0 12 0V6h-1.5Z"
+        />
+      </symbol>
+      <symbol id="icon-menu" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M3 6h18v2H3V6Zm0 5h18v2H3v-2Zm0 5h18v2H3v-2Z" />
+      </symbol>
+    </svg>
+
+    <!--
+      Empty layers a theme can draw on (pictures, rain, glows), behind the
+      whole app. Hidden unless a theme shows them. See docs/theme-reference.md.
+    -->
+    <div class="theme-layers" aria-hidden="true"><i class="layer-1"></i><i class="layer-2"></i><i class="layer-3"></i><i class="layer-4"></i></div>
+
+    <div class="app" id="app">
+      <!-- ============================================================ sidebar -->
+      <nav class="sidebar surface" id="sidebar" aria-label="Channels">
+        <!-- Your servers: one per friend, usually (see src/hub.ts). Filled in by app.js. -->
+        <div class="server-rail" id="server-rail" aria-label="Servers"></div>
+        <header class="sidebar-header">
+          <h1 class="server-name"><button type="button" class="server-name-button" id="server-name" title="Server settings">Kinaera</button></h1>
+          <!-- Things your friend asked you to approve. The badge counts them. -->
+          <button id="inbox-button" class="icon-button inbox-button" type="button" aria-label="Inbox" title="Inbox">
+            <svg width="20" height="20" aria-hidden="true"><use href="#icon-inbox" /></svg>
+            <span class="inbox-count" id="inbox-count" hidden></span>
+          </button>
+          <button id="new-channel-button" class="icon-button" type="button" aria-label="New channel" title="New channel">
+            <svg width="20" height="20" aria-hidden="true"><use href="#icon-plus" /></svg>
+          </button>
+        </header>
+
+        <!-- Filled in by app.js: one <li> per channel. -->
+        <ul class="channel-list" id="channel-list"></ul>
+
+        <footer class="sidebar-footer">
+          <div class="friend-card" id="friend-card" role="button" tabindex="0" title="Your friend: who they are, how they write">
+            <div class="avatar friend-avatar" id="friend-avatar" aria-hidden="true"></div>
+            <div class="friend-card-text">
+              <div class="friend-card-name" id="friend-name"></div>
+              <div class="friend-card-role">your friend</div>
+            </div>
+          </div>
+          <button id="notebook-button" class="icon-button" type="button" aria-label="Notebook" title="Notebook">
+            <svg width="20" height="20" aria-hidden="true"><use href="#icon-book" /></svg>
+          </button>
+          <button id="appearance-button" class="icon-button" type="button" aria-label="Appearance" title="Appearance">
+            <svg width="20" height="20" aria-hidden="true"><use href="#icon-palette" /></svg>
+          </button>
+          <button id="settings-button" class="icon-button" type="button" aria-label="Settings" title="Settings">
+            <svg width="20" height="20" aria-hidden="true"><use href="#icon-gear" /></svg>
+          </button>
+        </footer>
+      </nav>
+
+      <!-- Tapping outside the open sidebar on a phone closes it. -->
+      <div class="sidebar-scrim" id="sidebar-scrim"></div>
+
+      <!-- ======================================================= channel view -->
+      <!--
+        data-channel-id and data-channel-kind are set by app.js. They are what
+        per-channel themes (stage 3.5) will hook onto.
+      -->
+      <section class="channel-view" id="channel-view">
+        <!-- The same, for a channel theme: only shown when the channel has its own theme. -->
+        <div class="theme-layers" aria-hidden="true"><i class="layer-1"></i><i class="layer-2"></i><i class="layer-3"></i><i class="layer-4"></i></div>
+        <header class="channel-header surface">
+          <button id="menu-button" class="icon-button menu-button" type="button" aria-label="Show channels">
+            <svg width="22" height="22" aria-hidden="true"><use href="#icon-menu" /></svg>
+          </button>
+          <h2 class="channel-title">
+            <svg class="channel-icon" width="20" height="20" aria-hidden="true"><use id="channel-title-icon" href="#icon-hash" /></svg>
+            <span id="channel-name"></span>
+          </h2>
+          <span class="channel-topic" id="channel-topic"></span>
+          <button
+            id="channel-settings-button"
+            class="icon-button"
+            type="button"
+            aria-label="Channel settings"
+            title="Channel settings"
+          >
+            <svg width="20" height="20" aria-hidden="true"><use href="#icon-gear" /></svg>
+          </button>
+        </header>
+
+        <!-- A short notice, e.g. "Switched to Lite glass effects". -->
+        <div id="notice" class="notice-banner" role="status" hidden>
+          <span id="notice-text"></span>
+          <button id="notice-dismiss" type="button" class="link-button" aria-label="Dismiss">✕</button>
+        </div>
+
+        <!-- Shown when the server has a newer version of the app than this page. -->
+        <div id="update-banner" class="update-banner" role="status" hidden>
+          <span>Kinaera has been updated.</span>
+          <button id="update-reload" type="button" class="button button-primary">Reload</button>
+        </div>
+
+        <main id="messages" class="messages" aria-live="polite">
+          <!-- Filled in by app.js. -->
+        </main>
+
+        <footer class="composer surface" id="composer">
+          <!-- Shown while your friend is writing in this channel. -->
+          <div id="status" class="status" hidden>
+            <span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span id="status-text">Your friend is writing…</span>
+            <!-- Stops the reply: nothing is saved, and the channel is free again. -->
+            <button id="stop-button" type="button" class="link-button stop-button">Stop</button>
+          </div>
+
+          <!-- Shown when something went wrong, e.g. the model didn't answer. -->
+          <div id="error" class="error-banner" role="alert" hidden>
+            <span id="error-text"></span>
+            <button id="error-retry" type="button" class="link-button">Try again</button>
+            <button id="error-dismiss" type="button" class="link-button" aria-label="Dismiss">✕</button>
+          </div>
+
+          <form id="composer-form" class="composer-row">
+            <!-- Casual scenes only: which of your characters you're posting as. -->
+            <label class="posting-as-row" id="posting-as-row" hidden>
+              Posting as
+              <select id="posting-as" class="posting-as"></select>
+            </label>
+            <!-- Notebook entries attached to the message you're writing. -->
+            <div class="attach-row" id="attach-row" hidden></div>
+            <textarea id="composer-input" class="composer-input" rows="1" aria-label="Your message"></textarea>
+            <div class="composer-buttons">
+              <!-- Roleplay channels only: end this scene and start a new one. -->
+              <button id="scene-button" type="button" class="icon-button scene-button" title="New scene" aria-label="New scene">
+                <svg width="22" height="22" aria-hidden="true"><use href="#icon-scene" /></svg>
+              </button>
+              <!-- Attach notebook entries, so they're sent with your message. -->
+              <button id="attach-button" type="button" class="icon-button attach-button" title="Attach notes" aria-label="Attach notes">
+                <svg width="22" height="22" aria-hidden="true"><use href="#icon-clip" /></svg>
+              </button>
+              <span class="spacer"></span>
+              <button id="turn-button" type="button" class="button" title="Let your friend write without a new message from you">
+                Friend's turn
+              </button>
+              <button id="send-button" type="submit" class="button button-primary">Send</button>
+            </div>
+          </form>
+        </footer>
+      </section>
+    </div>
+
+    <!-- ============================================================ dialogs -->
+    <!-- A <dialog> gives us a modal with Escape-to-close for free. -->
+
+    <!-- Server-wide settings. -->
+    <dialog id="settings-dialog" class="dialog surface">
+      <form id="settings-form" method="dialog">
+        <h2 class="dialog-title">Settings</h2>
+
+        <p class="hint">
+          Settings for this friend's space. Who they are, and how they write, is in their own menu:
+          <button type="button" class="link-button inline-link" id="open-friend-from-settings">Friend…</button>
+        </p>
+
+        <p class="hint">Characters, yours and your friend's, live in the notebook (the book button).</p>
+
+        <!-- Which connection profile or roulette writes each kind of channel. -->
+        <div class="grid assignment-grid">
+          <div>
+            <label for="setting-rp-assignment">Roleplay written by</label>
+            <select id="setting-rp-assignment" name="rpAssignment"></select>
+          </div>
+          <div>
+            <label for="setting-ooc-assignment">OOC written by</label>
+            <select id="setting-ooc-assignment" name="oocAssignment"></select>
+          </div>
+        </div>
+        <p class="hint">
+          A channel can override these in its own settings.
+          <button type="button" class="link-button inline-link" id="open-models">Profiles and roulettes…</button>
+        </p>
+
+        <h3 class="section-title">Memory</h3>
+        <label for="setting-history">Recent messages</label>
+        <input id="setting-history" name="historyLimit" type="number" min="1" max="1000" step="1" />
+        <p class="hint">How many of a channel's newest messages your friend always reads in full.</p>
+
+        <label class="check-option">
+          <input type="checkbox" name="summaries" />
+          <span
+            ><strong>Summaries</strong><br /><span class="hint"
+              >Your friend remembers older messages through summaries: of each scene when it ends, the story so
+              far, and a line or two per channel for OOC. Off: older messages are simply left out.</span
+            ></span
+          >
+        </label>
+        <div class="grid assignment-grid summaries-only">
+          <div>
+            <label for="setting-summary-every">Summarize every</label>
+            <input id="setting-summary-every" name="summaryEvery" type="number" min="2" max="500" step="1" />
+          </div>
+          <div>
+            <label for="setting-summary-assignment">Summaries written by</label>
+            <select id="setting-summary-assignment" name="summaryAssignment"></select>
+          </div>
+        </div>
+        <p class="hint summaries-only">
+          In a long scene (or OOC chat), once this many more messages have piled up beyond the recent ones, the
+          oldest are folded into a summary of it. A cheap, careful model is a good choice for summaries.
+        </p>
+
+        <h3 class="section-title">Your friend reaching out</h3>
+        <label for="setting-wakeups">Chattiness</label>
+        <select id="setting-wakeups" name="wakeups">
+          <option value="off">Off: only when you write</option>
+          <option value="quiet">Quiet: when you come back after a while, and to review your suggestions</option>
+          <option value="normal">Normal: also when you end a scene</option>
+          <option value="chatty">Chatty: also whenever you open the app</option>
+        </select>
+        <p class="hint">
+          Your friend may take a turn on their own, in your OOC channel. Jev (below) checks first whether it's the
+          moment, and they can always choose not to write.
+        </p>
+        <div class="grid assignment-grid wakeups-only">
+          <div>
+            <label for="setting-away-hours">Away after (hours)</label>
+            <input id="setting-away-hours" name="awayHours" type="number" min="0.25" max="720" step="0.25" />
+          </div>
+          <div>
+            <label for="setting-wake-cooldown">At most every (minutes)</label>
+            <input id="setting-wake-cooldown" name="wakeCooldownMinutes" type="number" min="1" max="10080" step="1" />
+          </div>
+          <div>
+            <label for="setting-quiet-start">Quiet hours from</label>
+            <select id="setting-quiet-start" name="quietStart">
+              <option value="-1">No quiet hours</option>
+              <option value="0">00:00</option>
+              <option value="1">01:00</option>
+              <option value="2">02:00</option>
+              <option value="3">03:00</option>
+              <option value="4">04:00</option>
+              <option value="5">05:00</option>
+              <option value="6">06:00</option>
+              <option value="7">07:00</option>
+              <option value="8">08:00</option>
+              <option value="9">09:00</option>
+              <option value="10">10:00</option>
+              <option value="11">11:00</option>
+              <option value="12">12:00</option>
+              <option value="13">13:00</option>
+              <option value="14">14:00</option>
+              <option value="15">15:00</option>
+              <option value="16">16:00</option>
+              <option value="17">17:00</option>
+              <option value="18">18:00</option>
+              <option value="19">19:00</option>
+              <option value="20">20:00</option>
+              <option value="21">21:00</option>
+              <option value="22">22:00</option>
+              <option value="23">23:00</option>
+            </select>
+          </div>
+          <div>
+            <label for="setting-quiet-end">...until</label>
+            <select id="setting-quiet-end" name="quietEnd">
+              <option value="0">00:00</option>
+              <option value="1">01:00</option>
+              <option value="2">02:00</option>
+              <option value="3">03:00</option>
+              <option value="4">04:00</option>
+              <option value="5">05:00</option>
+              <option value="6">06:00</option>
+              <option value="7">07:00</option>
+              <option value="8">08:00</option>
+              <option value="9">09:00</option>
+              <option value="10">10:00</option>
+              <option value="11">11:00</option>
+              <option value="12">12:00</option>
+              <option value="13">13:00</option>
+              <option value="14">14:00</option>
+              <option value="15">15:00</option>
+              <option value="16">16:00</option>
+              <option value="17">17:00</option>
+              <option value="18">18:00</option>
+              <option value="19">19:00</option>
+              <option value="20">20:00</option>
+              <option value="21">21:00</option>
+              <option value="22">22:00</option>
+              <option value="23">23:00</option>
+            </select>
+          </div>
+        </div>
+        <div class="wakeups-only">
+          <label for="setting-heartbeat">Heartbeat</label>
+          <p class="hint">
+            Now and then, even with the app closed, your friend comes up with a few ideas (a story, a character, a
+            twist, a thought). Jev grades them, and your friend texts you the best, if it's really good and it's a good
+            moment. The rest go in their idea drawer, to bring up another time. Set quiet hours above so it never
+            wakes you.
+          </p>
+          <select id="setting-heartbeat" name="heartbeatHours">
+            <option value="0">Off</option>
+            <option value="2">About every 2 hours</option>
+            <option value="4">About every 4 hours</option>
+            <option value="6">About every 6 hours</option>
+            <option value="8">About every 8 hours</option>
+            <option value="12">About every 12 hours</option>
+            <option value="24">About once a day</option>
+          </select>
+          <p class="hint" id="heartbeat-status"></p>
+        </div>
+        <details class="wake-log wakeups-only" id="wake-log">
+          <summary>Recent wake-ups</summary>
+          <ul id="wake-log-list" class="wake-log-list"></ul>
+        </details>
+        <details class="wake-log wakeups-only" id="idea-drawer">
+          <summary>Idea drawer</summary>
+          <p class="hint">Ideas your friend had on a heartbeat: shared, saved for later, or dropped.</p>
+          <ul id="idea-list" class="wake-log-list"></ul>
+          <div class="memory-buttons">
+            <button type="button" class="button" id="beat-now">Beat now</button>
+          </div>
+          <p class="hint" id="beat-result" role="status"></p>
+        </details>
+
+        <h3 class="section-title">Decisions (Jev)</h3>
+        <p class="hint">
+          Jev is a fast decision model on nanoGPT that makes small yes-or-no calls (is this the moment to reach out?)
+          with a confidence, and never writes. Unsure always takes the safe path.
+        </p>
+        <div class="grid assignment-grid">
+          <div>
+            <label for="setting-decision-model">Jev's model</label>
+            <input id="setting-decision-model" name="decisionModel" autocomplete="off" placeholder="Off" />
+          </div>
+          <div>
+            <label for="setting-decision-confidence">How sure Jev has to be</label>
+            <input id="setting-decision-confidence" name="decisionConfidence" type="number" min="0.5" max="0.99" step="0.01" />
+          </div>
+        </div>
+        <label for="setting-decision-fallback">If Jev can't answer, ask</label>
+        <select id="setting-decision-fallback" name="decisionFallback"></select>
+        <div class="memory-buttons">
+          <button type="button" class="button" id="test-jev">Test Jev</button>
+          <button type="button" class="button" id="open-jev-log">Jev log</button>
+        </div>
+        <p class="hint" id="test-jev-result" role="status"></p>
+
+        <label class="check-option">
+          <input type="checkbox" name="jevChecks" />
+          <span
+            ><strong>Double-check with Jev</strong><br /><span class="hint"
+              >Jev checks the guesses Kinaera makes: whether a comment on your own message wants a reply, whether your
+              friend deleting an entry (or editing one of yours) is what you want, whether a scene summary is
+              faithful, and whether a channel really came up in OOC.</span
+            ></span
+          >
+        </label>
+
+        <label class="check-option">
+          <input type="checkbox" name="notebookKeeper" />
+          <span
+            ><strong>Notebook keeper</strong><br /><span class="hint"
+              >Every few posts in a roleplay channel, Jev checks whether the story named someone new or established
+              something lasting. If so, your friend notes it in the notebook: new entries are shared, and notes on
+              yours may come to you as suggestions. Every note is checked against the messages first.</span
+            ></span
+          >
+        </label>
+        <label for="setting-keeper-every">Check every (posts)</label>
+        <input id="setting-keeper-every" name="keeperEvery" type="number" min="2" max="100" step="1" />
+
+        <p class="form-error" role="alert" hidden></p>
+
+        <div class="dialog-buttons">
+          <span class="spacer"></span>
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- The open channel's settings. -->
+    <!-- The Jev log: every call to Jev from the last 36 hours, exactly as sent and received. -->
+    <dialog id="jev-log-dialog" class="dialog surface">
+      <form method="dialog">
+        <h2 class="dialog-title">Jev log</h2>
+        <p class="hint" id="jev-log-note"></p>
+        <label class="check-inline"><input type="checkbox" id="jev-log-errors" /> Errors only</label>
+        <ul id="jev-log-list" class="tool-log-list"></ul>
+        <div class="dialog-buttons">
+          <button type="button" class="button" id="jev-log-copy">Copy as text</button>
+          <span class="spacer"></span>
+          <button type="button" class="button button-primary" data-close>Close</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="channel-dialog" class="dialog surface">
+      <form id="channel-form" method="dialog">
+        <h2 class="dialog-title">Channel settings</h2>
+        <p class="hint" id="channel-kind-note"></p>
+
+        <label for="channel-setting-name">Channel name</label>
+        <input id="channel-setting-name" name="name" autocomplete="off" />
+
+        <label for="channel-setting-category">Category</label>
+        <p class="hint">Or drag the channel in the sidebar (press and hold on a phone).</p>
+        <select id="channel-setting-category" name="category"></select>
+
+        <label for="channel-setting-assignment">Written by</label>
+        <p class="hint">The connection profile or roulette that writes here.</p>
+        <select id="channel-setting-assignment" name="assignment"></select>
+
+        <label for="channel-setting-theme">Theme</label>
+        <p class="hint">A channel's own theme only changes the channel itself, not the channel list.</p>
+        <select id="channel-setting-theme" name="theme"></select>
+
+        <!-- Only shown for RP channels. -->
+        <div class="rp-only">
+          <fieldset class="kind-picker mode-picker">
+            <legend>Style</legend>
+            <label class="kind-option">
+              <input type="radio" name="mode" value="literary" />
+              <span><strong>Literary</strong><br /><span class="hint">Prose posts that take their time.</span></span>
+            </label>
+            <label class="kind-option">
+              <input type="radio" name="mode" value="casual" />
+              <span
+                ><strong>Casual</strong><br /><span class="hint"
+                  >Short in-character messages, one character per bubble.</span
+                ></span
+              >
+            </label>
+          </fieldset>
+          <p class="hint" id="channel-mode-note"></p>
+
+          <!--
+            The cast: notebook entries pinned to this channel. Changes here
+            are saved straight away (they don't wait for Save).
+          -->
+          <label>Cast and lore</label>
+          <p class="hint">
+            Who's in this story, and what your friend should know. Your friend plays their characters, you play
+            yours, and either of you can play shared ones.
+          </p>
+          <ul id="cast-list" class="cast-list"></ul>
+          <label for="cast-add" class="visually-hidden">Pin from the notebook</label>
+          <select id="cast-add" class="cast-add"></select>
+        </div>
+
+        <!--
+          Memory: the channel's summaries (stage 7). Changes here are saved
+          straight away (they don't wait for Save).
+        -->
+        <details class="memory" id="channel-memory">
+          <summary>Memory</summary>
+          <p class="hint" id="memory-note"></p>
+          <div class="rp-only">
+            <label for="memory-story">The story so far</label>
+            <textarea id="memory-story" rows="7" placeholder="Written when the first scene ends."></textarea>
+            <p class="hint">
+              Updated from each scene's summary as scenes end. Edit it and press Save story to keep your own
+              words; empty it to have it written again.
+            </p>
+            <div class="memory-buttons">
+              <button type="button" class="button" id="memory-save-story">Save story</button>
+            </div>
+          </div>
+          <label id="memory-earlier-label">Earlier in this scene</label>
+          <p class="memory-text" id="memory-earlier"></p>
+          <label>In short</label>
+          <p class="memory-text" id="memory-digest"></p>
+          <p class="hint" id="memory-status" role="status"></p>
+          <div class="memory-buttons">
+            <button type="button" class="button" id="memory-update">Update now</button>
+            <button type="button" class="button" id="memory-rebuild">Rebuild all</button>
+          </div>
+        </details>
+
+        <p class="form-error" role="alert" hidden></p>
+
+        <div class="dialog-buttons">
+          <button type="button" class="button" id="channel-move-up" title="Move up in the sidebar">↑</button>
+          <button type="button" class="button" id="channel-move-down" title="Move down in the sidebar">↓</button>
+          <button type="button" class="button" id="preview-prompt">Preview prompt</button>
+          <button type="button" class="button" id="open-tool-log">Tool log</button>
+          <span class="spacer"></span>
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary">Save</button>
+        </div>
+
+        <details class="danger-zone">
+          <summary>Danger zone</summary>
+          <div class="danger-buttons">
+            <button id="clear-channel" type="button" class="button button-danger">Delete every message</button>
+            <button id="delete-channel" type="button" class="button button-danger">Delete channel</button>
+          </div>
+        </details>
+      </form>
+    </dialog>
+
+    <!-- Creating a channel. -->
+    <dialog id="new-channel-dialog" class="dialog surface">
+      <form id="new-channel-form" method="dialog">
+        <h2 class="dialog-title">New channel</h2>
+
+        <fieldset class="kind-picker">
+          <legend>Type</legend>
+          <label class="kind-option">
+            <input type="radio" name="kind" value="rp" checked />
+            <span
+              ><strong>Roleplay</strong><br /><span class="hint"
+                >A storyline, with a cast of characters from the notebook.</span
+              ></span
+            >
+          </label>
+          <label class="kind-option">
+            <input type="radio" name="kind" value="ooc" />
+            <span
+              ><strong>Out of character</strong><br /><span class="hint"
+                >Talk with your friend as themselves.</span
+              ></span
+            >
+          </label>
+        </fieldset>
+
+        <label for="new-channel-name">Channel name</label>
+        <input id="new-channel-name" name="name" autocomplete="off" placeholder="e.g. lighthouse" />
+
+        <label for="new-channel-category">Category</label>
+        <div class="inline-row">
+          <select id="new-channel-category" name="category"></select>
+          <button type="button" class="button" id="new-channel-new-category">New category…</button>
+        </div>
+
+        <div class="rp-only">
+          <label for="new-channel-mode">Style</label>
+          <select id="new-channel-mode" name="mode">
+            <option value="literary">Literary: prose posts</option>
+            <option value="casual">Casual: short chat bubbles</option>
+          </select>
+
+          <label for="new-channel-cast">Your friend plays</label>
+          <select id="new-channel-cast" name="cast"></select>
+          <p class="hint">You can change the cast any time in channel settings.</p>
+        </div>
+
+        <p class="form-error" role="alert" hidden></p>
+
+        <div class="dialog-buttons">
+          <span class="spacer"></span>
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary">Create</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!--
+      The notebook: every character and piece of lore you can see, in
+      folders, and suggested changes waiting for review. Filled in by app.js.
+    -->
+    <dialog id="notebook-dialog" class="dialog surface notebook">
+      <h2 class="dialog-title">Notebook</h2>
+      <p class="hint">
+        Characters and lore for your stories. Pin an entry to a channel to put it in that channel's cast. Link entries
+        to each other with <code>[[Name]]</code>.
+      </p>
+
+      <div class="dialog-buttons notebook-actions">
+        <button type="button" class="button" id="notebook-new-character">New character</button>
+        <button type="button" class="button" id="notebook-new-lore">New lore</button>
+        <button type="button" class="button" id="notebook-new-folder">New folder</button>
+        <button type="button" class="button" id="notebook-library">Library</button>
+      </div>
+
+      <section id="suggestion-list" class="suggestion-list" hidden></section>
+      <div id="notebook-list" class="notebook-list"></div>
+
+      <p class="form-error" role="alert" hidden></p>
+
+      <div class="dialog-buttons">
+        <span class="spacer"></span>
+        <button type="button" class="button button-primary" data-close>Done</button>
+      </div>
+    </dialog>
+
+    <!-- The open friend: who they are, how they look, how they write. -->
+    <dialog id="friend-dialog" class="dialog surface">
+      <form id="friend-form" method="dialog">
+        <div class="friend-dialog-head">
+          <div class="avatar friend-avatar" id="friend-dialog-avatar" aria-hidden="true"></div>
+          <h2 class="dialog-title" id="friend-dialog-title">Friend</h2>
+        </div>
+        <p class="hint">
+          Everything they remember is theirs alone: their notebook, channels, ideas and settings. Other friends never
+          see it.
+        </p>
+
+        <label for="friend-name-input">Name</label>
+        <input id="friend-name-input" name="friendName" autocomplete="off" />
+
+        <div class="grid assignment-grid">
+          <div>
+            <label for="friend-avatar-input">Avatar</label>
+            <input id="friend-avatar-input" name="friendAvatar" autocomplete="off" maxlength="8" placeholder="An emoji, or empty for their initial" />
+          </div>
+          <div>
+            <label for="friend-color-input">Colour</label>
+            <div class="inline-row">
+              <input id="friend-color-input" name="friendColor" type="range" min="0" max="359" step="1" />
+              <label class="check-inline"><input type="checkbox" name="themeColor" /> Theme's</label>
+            </div>
+          </div>
+        </div>
+
+        <label for="setting-friend">Who your friend is</label>
+        <p class="hint">Their personality and taste as a writer. Used in every channel.</p>
+        <textarea id="setting-friend" name="friendPrompt" rows="5"></textarea>
+        <div class="memory-buttons">
+          <button type="button" class="button" id="surprise-friend">🎲 Surprise me</button>
+        </div>
+        <p class="hint" id="surprise-result" role="status">
+          Reroll who they are from a few random ingredients. Nothing changes until you press Save.
+        </p>
+
+        <label class="check-option">
+          <input type="checkbox" name="oocBubbles" />
+          <span
+            ><strong>Texting in OOC</strong><br /><span class="hint"
+              >Your friend texts in short bursts, shown one at a time with "typing…" between them (double-tap it to
+              skip). Each thing you send is its own text, and they answer once you pause.</span
+            ></span
+          >
+        </label>
+        <div class="grid assignment-grid texting-only">
+          <div>
+            <label for="setting-reply-delay">They answer after a pause of (seconds)</label>
+            <input id="setting-reply-delay" name="replyDelaySeconds" type="number" min="0" max="30" step="0.5" />
+          </div>
+          <div>
+            <label for="setting-typing-speed">Typing speed (ms per character)</label>
+            <input id="setting-typing-speed" name="typingPerCharMs" type="number" min="0" max="1000" step="5" />
+          </div>
+        </div>
+
+        <!--
+          One prompt per kind of channel. Only the one that applies is sent,
+          so instructions for long prose never reach an OOC chat.
+        -->
+        <label for="setting-literary">In literary scenes</label>
+        <p class="hint">How they write prose posts: style, pacing, length.</p>
+        <textarea id="setting-literary" name="literaryPrompt" rows="4"></textarea>
+
+        <label for="setting-casual">In casual scenes</label>
+        <p class="hint">How they write short in-character chat messages.</p>
+        <textarea id="setting-casual" name="casualPrompt" rows="4"></textarea>
+
+        <label for="setting-ooc">Out of character</label>
+        <p class="hint">How they talk to you as themselves in OOC channels, e.g. how long their messages are.</p>
+        <textarea id="setting-ooc" name="oocPrompt" rows="4"></textarea>
+
+        <p class="form-error" role="alert" hidden></p>
+        <div class="dialog-buttons">
+          <button type="button" class="button button-danger" id="friend-delete">Delete…</button>
+          <button type="button" class="button" id="friend-move" hidden>Own server</button>
+          <span class="spacer"></span>
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- A new friend: in a new server of their own, or in this one. -->
+    <dialog id="new-friend-dialog" class="dialog surface">
+      <form id="new-friend-form" method="dialog">
+        <h2 class="dialog-title" id="new-friend-title">New server</h2>
+        <p class="hint" id="new-friend-note">
+          A new friend, with a server of their own. They start fresh: their own notebook, channels and memory, with
+          your connection profiles and preferences.
+        </p>
+        <div id="new-server-name-row">
+          <label for="new-server-name">Server name</label>
+          <input id="new-server-name" name="serverName" autocomplete="off" maxlength="100" placeholder="Optional: their name, if empty" />
+        </div>
+        <div class="grid assignment-grid">
+          <div>
+            <label for="new-friend-name">Friend's name</label>
+            <input id="new-friend-name" name="name" autocomplete="off" maxlength="100" />
+          </div>
+          <div>
+            <label for="new-friend-avatar">Avatar</label>
+            <input id="new-friend-avatar" name="avatar" autocomplete="off" maxlength="8" placeholder="An emoji (optional)" />
+          </div>
+        </div>
+        <label for="new-friend-prompt">Who they are</label>
+        <textarea id="new-friend-prompt" name="prompt" rows="5" placeholder="Their personality and taste as a writer. Leave empty for the default."></textarea>
+        <div class="memory-buttons">
+          <button type="button" class="button" id="new-friend-surprise">🎲 Surprise me</button>
+        </div>
+        <p class="hint" id="new-friend-surprise-result" role="status"></p>
+        <p class="form-error" role="alert" hidden></p>
+        <div class="dialog-buttons">
+          <span class="spacer"></span>
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary" id="new-friend-create">Create</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- A server: its name, its friends, and deleting it. -->
+    <dialog id="server-dialog" class="dialog surface">
+      <form id="server-form" method="dialog">
+        <h2 class="dialog-title">Server</h2>
+        <label for="server-name-input">Name</label>
+        <input id="server-name-input" autocomplete="off" maxlength="100" placeholder="Empty: its first friend's name" />
+        <label>Friends here</label>
+        <ul id="server-friend-list" class="server-friend-list"></ul>
+        <div class="memory-buttons">
+          <button type="button" class="button" id="server-add-friend">Add a friend here…</button>
+        </div>
+        <p class="form-error" role="alert" hidden></p>
+        <div class="dialog-buttons">
+          <button type="button" class="button button-danger" id="server-delete">Delete server…</button>
+          <span class="spacer"></span>
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- A channel category: its name (and deleting it). -->
+    <dialog id="category-dialog" class="dialog surface">
+      <form id="category-form" method="dialog">
+        <h2 class="dialog-title" id="category-title">Category</h2>
+        <label for="category-name">Name</label>
+        <input id="category-name" autocomplete="off" maxlength="100" placeholder="e.g. Fantasy" />
+        <p class="form-error" role="alert" hidden></p>
+        <div class="dialog-buttons">
+          <button type="button" class="button button-danger" id="category-delete">Delete</button>
+          <span class="spacer"></span>
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Custom emojis: images used as :name:, in reactions and messages. -->
+    <dialog id="emoji-dialog" class="dialog surface">
+      <form id="emoji-form" method="dialog">
+        <h2 class="dialog-title">Custom emojis</h2>
+        <p class="hint">
+          Small images you and your friend can react with, and write in messages as <code>:name:</code>. PNG, GIF
+          (animated too), JPEG or WebP, up to 512 KB.
+        </p>
+        <ul id="emoji-list" class="emoji-list"></ul>
+        <div class="grid assignment-grid">
+          <div>
+            <label for="emoji-file">Image</label>
+            <input id="emoji-file" type="file" accept="image/png,image/gif,image/jpeg,image/webp" />
+          </div>
+          <div>
+            <label for="emoji-name">Name</label>
+            <input id="emoji-name" autocomplete="off" maxlength="32" placeholder="blob_wave" />
+          </div>
+        </div>
+        <p class="form-error" role="alert" hidden></p>
+        <div class="dialog-buttons">
+          <button type="submit" class="button">Add emoji</button>
+          <span class="spacer"></span>
+          <button type="button" class="button button-primary" data-close>Done</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- The reference library: long texts your friend can search (scripts, books). -->
+    <dialog id="library-dialog" class="dialog surface library">
+      <h2 class="dialog-title">Library</h2>
+      <p class="hint">
+        Long texts for your friend to look things up in, like a film's script or a book for a fandom. They're never sent
+        whole: your friend searches them and reads the passages they need (with a profile that can use tools).
+      </p>
+      <div class="dialog-buttons notebook-actions">
+        <button type="button" class="button" id="library-add">Add a document</button>
+      </div>
+      <ul id="library-list" class="library-list"></ul>
+
+      <label for="library-search">Search the library</label>
+      <input id="library-search" type="search" placeholder='A name, a place, or "an exact line"' autocomplete="off" />
+      <ul id="library-results" class="library-results"></ul>
+
+      <p class="form-error" role="alert" hidden></p>
+      <div class="dialog-buttons">
+        <span class="spacer"></span>
+        <button type="button" class="button button-primary" data-close>Done</button>
+      </div>
+    </dialog>
+
+    <!-- Adding a document to the library, or changing one. -->
+    <dialog id="library-doc-dialog" class="dialog surface">
+      <form id="library-doc-form" method="dialog">
+        <h2 class="dialog-title" id="library-doc-title">Add a document</h2>
+        <div id="library-file-row">
+          <label for="library-file">Text file</label>
+          <input id="library-file" type="file" accept=".txt,.md,.markdown,.fountain,.srt,.text,text/*" />
+          <p class="hint" id="library-file-note">A plain text file (.txt, .md, .fountain…). Save a PDF or Word script as text first.</p>
+        </div>
+        <label for="library-doc-name">Title</label>
+        <input id="library-doc-name" autocomplete="off" maxlength="200" />
+        <label for="library-doc-description">What it is</label>
+        <p class="hint">For your friend: "The screenplay of the first film", "Season 2 episode transcripts".</p>
+        <input id="library-doc-description" autocomplete="off" maxlength="1000" />
+        <label>Channels</label>
+        <p class="hint">Where your friend can use it. None ticked means everywhere; OOC channels can always use it.</p>
+        <div id="library-doc-channels" class="library-channels"></div>
+        <p class="form-error" role="alert" hidden></p>
+        <div class="dialog-buttons">
+          <button type="button" class="button button-danger" id="library-doc-delete">Delete</button>
+          <span class="spacer"></span>
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary" id="library-doc-save">Add</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Reading a passage of a library document. -->
+    <dialog id="library-read-dialog" class="dialog surface">
+      <h2 class="dialog-title" id="library-read-title"></h2>
+      <p class="hint" id="library-read-where"></p>
+      <pre id="library-read-text" class="library-passage"></pre>
+      <div class="dialog-buttons">
+        <button type="button" class="button" id="library-read-prev">Previous</button>
+        <button type="button" class="button" id="library-read-next">Next</button>
+        <span class="spacer"></span>
+        <button type="button" class="button button-primary" data-close>Close</button>
+      </div>
+    </dialog>
+
+    <!-- One notebook entry: its contents, and (for the owner) its settings. -->
+    <dialog id="entry-dialog" class="dialog surface entry-editor">
+      <form id="entry-form" method="dialog">
+        <h2 class="dialog-title" id="entry-title">Entry</h2>
+        <!-- Whose entry this is, and what you can do with it. -->
+        <p class="hint entry-access" id="entry-access"></p>
+
+        <label for="entry-name">Name</label>
+        <input id="entry-name" name="name" autocomplete="off" />
+
+        <label>Fields</label>
+        <div id="entry-fields" class="entry-fields"></div>
+        <button type="button" class="button add-field" id="entry-add-field">Add field</button>
+
+        <label for="entry-system-prompt">Notes for your friend</label>
+        <p class="hint">How to write this character or use this lore: speech, secrets, tone. For your friend, never shown in the story.</p>
+        <textarea id="entry-system-prompt" name="systemPrompt" rows="4"></textarea>
+
+        <!-- Links to other entries, found in the text above. -->
+        <p class="entry-links" id="entry-links" hidden></p>
+
+        <div id="entry-prefix-row" hidden>
+          <label for="entry-prefix">Proxy prefix</label>
+          <p class="hint">
+            In casual scenes, start a line with this and a colon to post as this character, e.g. <code>k: *waves*</code>.
+          </p>
+          <input id="entry-prefix" name="proxyPrefix" autocomplete="off" spellcheck="false" />
+        </div>
+
+        <!-- Settings: only the entry's owner can change them. -->
+        <fieldset class="entry-settings" id="entry-settings">
+          <legend>Settings</legend>
+          <div class="grid entry-settings-grid">
+            <div>
+              <label for="entry-owner">Owner</label>
+              <select id="entry-owner" name="owner"></select>
+            </div>
+            <div>
+              <label for="entry-visibility">Visibility</label>
+              <select id="entry-visibility" name="visibility"></select>
+            </div>
+            <div>
+              <label for="entry-editing" id="entry-editing-label">Your friend can</label>
+              <select id="entry-editing" name="editing"></select>
+            </div>
+          </div>
+          <label for="entry-folder">Folder</label>
+          <select id="entry-folder" name="folderId"></select>
+        </fieldset>
+
+        <p class="form-error" role="alert" hidden></p>
+
+        <div class="dialog-buttons">
+          <button type="button" class="button" id="entry-pin"></button>
+          <button type="button" class="button button-danger" id="entry-delete">Delete</button>
+          <span class="spacer"></span>
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary" id="entry-save">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- A notebook folder: a name, and settings its entries inherit. -->
+    <dialog id="folder-dialog" class="dialog surface">
+      <form id="folder-form" method="dialog">
+        <h2 class="dialog-title" id="folder-title">Folder</h2>
+        <p class="hint">Entries in a folder use its visibility and editing settings, unless they have their own.</p>
+
+        <label for="folder-name">Name</label>
+        <input id="folder-name" name="name" autocomplete="off" />
+
+        <div class="grid folder-settings-grid">
+          <div>
+            <label for="folder-visibility">Visibility</label>
+            <select id="folder-visibility" name="visibility">
+              <option value="visible">Visible to both</option>
+              <option value="hidden">Hidden from your friend</option>
+            </select>
+          </div>
+          <div>
+            <label for="folder-editing">Your friend can</label>
+            <select id="folder-editing" name="editing">
+              <option value="open">Edit</option>
+              <option value="suggest">Suggest changes</option>
+              <option value="locked">Only read</option>
+            </select>
+          </div>
+        </div>
+
+        <p class="form-error" role="alert" hidden></p>
+
+        <div class="dialog-buttons">
+          <button type="button" class="button button-danger" id="folder-delete">Delete folder</button>
+          <span class="spacer"></span>
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Connection profiles and roulettes (stage 5). Filled in by app.js. -->
+    <dialog id="models-dialog" class="dialog surface">
+      <h2 class="dialog-title">Profiles and roulettes</h2>
+      <p class="hint">
+        A <strong>connection profile</strong> is one model with its settings. A <strong>roulette</strong> picks one of
+        several profiles at random each turn, by weight, for variety. Neither changes who your friend is.
+      </p>
+
+      <h3 class="section-title">Profiles</h3>
+      <ul id="profile-list" class="profile-list"></ul>
+      <button type="button" class="button" id="new-profile">New profile</button>
+
+      <h3 class="section-title">Roulettes</h3>
+      <ul id="roulette-list" class="profile-list"></ul>
+      <button type="button" class="button" id="new-roulette">New roulette</button>
+
+      <p class="form-error" role="alert" hidden></p>
+      <div class="dialog-buttons">
+        <span class="spacer"></span>
+        <button type="button" class="button button-primary" data-close>Done</button>
+      </div>
+    </dialog>
+
+    <!-- One connection profile. -->
+    <dialog id="profile-dialog" class="dialog surface">
+      <form id="profile-form" method="dialog">
+        <h2 class="dialog-title" id="profile-title">Profile</h2>
+
+        <label for="profile-name">Name</label>
+        <input id="profile-name" name="name" autocomplete="off" placeholder="e.g. DeepSeek, warm" />
+
+        <label for="profile-model">Model</label>
+        <div class="inline">
+          <input id="profile-model" name="model" list="model-list" autocomplete="off" spellcheck="false" />
+          <button id="load-models" type="button" class="button">Load list</button>
+        </div>
+        <datalist id="model-list"></datalist>
+
+        <div class="grid">
+          <div>
+            <label for="profile-temperature">Temperature</label>
+            <input id="profile-temperature" name="temperature" type="number" min="0" max="2" step="0.05" />
+          </div>
+          <div>
+            <label for="profile-max-tokens">Max tokens</label>
+            <input id="profile-max-tokens" name="maxTokens" type="number" min="16" max="32000" step="1" />
+          </div>
+          <div>
+            <label for="profile-top-p">Top P</label>
+            <input id="profile-top-p" name="topP" type="number" min="0" max="1" step="0.01" placeholder="auto" />
+          </div>
+        </div>
+
+        <label for="profile-reasoning">Reasoning</label>
+        <select id="profile-reasoning" name="reasoningEffort">
+          <option value="">The model's default</option>
+          <option value="low">Low effort</option>
+          <option value="medium">Medium effort</option>
+          <option value="high">High effort</option>
+        </select>
+        <p class="hint">Only for reasoning models. Their thinking is never shown or saved.</p>
+
+        <label class="check-option">
+          <input type="checkbox" name="supportsTools" />
+          <span
+            ><strong>Can use tools</strong><br /><span class="hint"
+              >Lets your friend act (read the notebook, pin characters, comment...). Turn off for models that
+              can't, and they'll just write.</span
+            ></span
+          >
+        </label>
+
+        <label for="profile-quirk">Model notes</label>
+        <p class="hint">
+          Tame this model's habits, e.g. "Don't restate the scene." Not for personality: that's the friend prompts.
+        </p>
+        <textarea id="profile-quirk" name="quirkPrompt" rows="3"></textarea>
+
+        <details class="advanced">
+          <summary>Extra request fields</summary>
+          <p class="hint">A JSON object sent with each request, for settings not listed above, e.g. <code>{"top_k": 40}</code>.</p>
+          <textarea id="profile-extra" name="extraParams" rows="3" spellcheck="false" class="code-input"></textarea>
+        </details>
+
+        <!-- Checks whether this profile's model can actually call tools. -->
+        <div class="tool-test-row">
+          <button type="button" class="button" id="profile-test">Test tools</button>
+          <p class="hint tool-test" id="profile-test-result" role="status"></p>
+        </div>
+
+        <p class="form-error" role="alert" hidden></p>
+
+        <div class="dialog-buttons">
+          <button type="button" class="button button-danger" id="profile-delete">Delete</button>
+          <span class="spacer"></span>
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- One roulette: profiles and their weights. -->
+    <dialog id="roulette-dialog" class="dialog surface">
+      <form id="roulette-form" method="dialog">
+        <h2 class="dialog-title" id="roulette-title">Roulette</h2>
+
+        <label for="roulette-name">Name</label>
+        <input id="roulette-name" name="name" autocomplete="off" placeholder="e.g. Variety" />
+
+        <label>Profiles and weights</label>
+        <p class="hint">Each turn picks one, with a chance in proportion to its weight.</p>
+        <div id="roulette-entries" class="roulette-entries"></div>
+        <button type="button" class="button" id="roulette-add">Add a profile</button>
+
+        <p class="form-error" role="alert" hidden></p>
+
+        <div class="dialog-buttons">
+          <button type="button" class="button button-danger" id="roulette-delete">Delete</button>
+          <span class="spacer"></span>
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- "Regenerate with...": pick a profile, or roll the channel's again. -->
+    <dialog id="regenerate-dialog" class="dialog surface">
+      <form id="regenerate-form" method="dialog">
+        <h2 class="dialog-title">Regenerate with</h2>
+        <select id="regenerate-profile" name="profileId"></select>
+        <div class="dialog-buttons">
+          <span class="spacer"></span>
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary">Regenerate</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- The inbox: your friend's proposals and suggestions, and yours waiting on them. -->
+    <dialog id="inbox-dialog" class="dialog surface inbox">
+      <h2 class="dialog-title">Inbox</h2>
+      <p class="hint">What your friend asked you to approve, and your suggestions waiting for them.</p>
+      <div id="inbox-list" class="inbox-list"></div>
+      <p class="form-error" role="alert" hidden></p>
+      <div class="dialog-buttons">
+        <span class="spacer"></span>
+        <button type="button" class="button button-primary" data-close>Done</button>
+      </div>
+    </dialog>
+
+    <!-- Every tool call in the open channel, for troubleshooting. -->
+    <dialog id="tool-log-dialog" class="dialog surface tool-log">
+      <h2 class="dialog-title">Tool log</h2>
+      <p class="hint">
+        Every tool your friend called in this channel, newest first, with the arguments exactly as the model wrote
+        them and what it was told back. "Text" means the model wrote the call into its reply instead of using the API.
+      </p>
+      <div class="dialog-buttons tool-log-actions">
+        <label class="check-inline"><input type="checkbox" id="tool-log-errors" /> Errors only</label>
+        <span class="spacer"></span>
+        <button type="button" class="button" id="tool-log-copy">Copy as text</button>
+      </div>
+      <ol id="tool-log-list" class="tool-log-list"></ol>
+      <p class="form-error" role="alert" hidden></p>
+      <div class="dialog-buttons">
+        <span class="spacer"></span>
+        <button type="button" class="button button-primary" data-close>Close</button>
+      </div>
+    </dialog>
+
+    <!-- A comment thread on a message (or a new comment). -->
+    <dialog id="thread-dialog" class="dialog surface thread">
+      <form id="thread-form" method="dialog">
+        <h2 class="dialog-title" id="thread-title">Comment</h2>
+        <select id="thread-picker" class="thread-picker" aria-label="Thread" hidden></select>
+        <blockquote class="thread-quote" id="thread-quote" hidden></blockquote>
+        <ol class="thread-comments" id="thread-comments"></ol>
+        <p class="status thread-status" id="thread-status" hidden>
+          <span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span id="thread-status-text"></span>
+        </p>
+        <label for="thread-note" class="visually-hidden">Your comment</label>
+        <textarea id="thread-note" name="note" rows="3" placeholder="Out of character: the characters never see this."></textarea>
+        <p class="form-error" role="alert" hidden></p>
+        <div class="dialog-buttons">
+          <button type="button" class="button" id="thread-resolve">Resolve</button>
+          <span class="spacer"></span>
+          <button type="button" class="button" data-close>Close</button>
+          <button type="submit" class="button button-primary" id="thread-send">Comment</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Picking notebook entries to attach to your message. -->
+    <dialog id="attach-dialog" class="dialog surface">
+      <h2 class="dialog-title">Attach notes</h2>
+      <p class="hint">
+        Attached notes are sent to your friend in full with this message, and stay in their view while the message is
+        in the conversation. Writing <code>[[Name]]</code> in your message attaches that entry too.
+      </p>
+      <input id="attach-search" type="search" placeholder="Find an entry…" autocomplete="off" aria-label="Find an entry" />
+      <ul id="attach-list" class="attach-list"></ul>
+      <div class="dialog-buttons">
+        <span class="spacer"></span>
+        <button type="button" class="button button-primary" data-close>Done</button>
+      </div>
+    </dialog>
+
+    <!-- Shown next to text you select in a message: comment on it. -->
+    <button id="comment-float" type="button" class="button comment-float" hidden>💬 Comment</button>
+
+    <!-- Appearance: pick the app theme, glass effects, and manage your themes. -->
+    <dialog id="appearance-dialog" class="dialog surface">
+      <h2 class="dialog-title">Appearance</h2>
+
+      <label>App theme</label>
+      <p class="hint">Used everywhere, unless a channel has its own theme (channel settings).</p>
+      <div id="theme-list" class="theme-list" role="radiogroup" aria-label="App theme"></div>
+
+      <div class="dialog-buttons theme-actions">
+        <button type="button" class="button" id="theme-copy">Copy to edit</button>
+        <button type="button" class="button" id="theme-edit">Edit</button>
+        <button type="button" class="button button-danger" id="theme-delete">Delete</button>
+      </div>
+
+      <!-- Sliders the app theme (and the open channel's theme) offer, if any. -->
+      <div id="theme-options" class="theme-options" hidden></div>
+
+      <fieldset class="kind-picker effects-picker">
+        <legend>Glass effects on this device</legend>
+        <label class="kind-option">
+          <input type="radio" name="effects" value="auto" />
+          <span
+            ><strong>Automatic</strong><br /><span class="hint"
+              >Full effects, switching to Lite if scrolling stutters.</span
+            ></span
+          >
+        </label>
+        <label class="kind-option">
+          <input type="radio" name="effects" value="full" />
+          <span><strong>Full</strong><br /><span class="hint">Real blurred glass.</span></span>
+        </label>
+        <label class="kind-option">
+          <input type="radio" name="effects" value="lite" />
+          <span
+            ><strong>Lite</strong><br /><span class="hint">No blur: more solid panels that are easier on the phone.</span></span
+          >
+        </label>
+      </fieldset>
+
+      <p class="form-error" role="alert" hidden></p>
+
+      <div class="dialog-buttons">
+        <span class="spacer"></span>
+        <button type="button" class="button button-primary" data-close>Done</button>
+      </div>
+    </dialog>
+
+    <!-- Editing one of your themes. -->
+    <dialog id="theme-editor" class="dialog surface theme-editor">
+      <form id="theme-editor-form" method="dialog">
+        <h2 class="dialog-title">Edit theme</h2>
+
+        <label for="theme-name">Name</label>
+        <input id="theme-name" name="name" autocomplete="off" />
+
+        <label for="theme-description">Description</label>
+        <input id="theme-description" name="description" autocomplete="off" />
+
+        <label for="theme-css">CSS</label>
+        <p class="hint">
+          Change the values of the tokens, or style anything else. The full list is in
+          <code>docs/theme-reference.md</code>. Press Apply to see your changes.
+        </p>
+        <textarea id="theme-css" name="css" rows="14" spellcheck="false" class="code-input"></textarea>
+
+        <details class="lite-css">
+          <summary>Lite version (optional)</summary>
+          <p class="hint">
+            Loaded on top of the CSS above when glass effects are Lite. Usually: turn off blur and make panels more
+            solid, e.g. <code>--sidebar-backdrop: none;</code>
+          </p>
+          <textarea id="theme-lite-css" name="liteCss" rows="8" spellcheck="false" class="code-input"></textarea>
+        </details>
+
+        <details class="lite-css theme-options-editor">
+          <summary>Sliders (optional)</summary>
+          <p class="hint">
+            Sliders shown in Appearance, each setting a CSS variable your CSS uses. A JSON list, e.g.
+            <code>[{"id": "blur", "label": "Blur", "variable": "--my-blur", "min": 0, "max": 30, "step": 1, "default": 12, "unit": "px"}]</code>
+          </p>
+          <textarea id="theme-options-json" name="options" rows="6" spellcheck="false" class="code-input"></textarea>
+        </details>
+
+        <label>Images and fonts</label>
+        <p class="hint">
+          Use a file in the CSS by its name, e.g. <code>--app-background: url(sky.jpg) center / cover;</code>
+        </p>
+        <ul id="theme-files" class="theme-files"></ul>
+        <label class="button file-button">
+          Add files…
+          <input id="theme-upload" type="file" multiple accept="image/*,.woff,.woff2,.ttf,.otf" hidden />
+        </label>
+
+        <p class="form-error" role="alert" hidden></p>
+
+        <div class="dialog-buttons">
+          <span class="spacer"></span>
+          <button type="button" class="button" data-close>Close</button>
+          <button type="button" class="button" id="theme-apply">Apply</button>
+          <button type="submit" class="button button-primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Shows the exact prompt stack the next friend turn would send. -->
+    <dialog id="prompt-dialog" class="dialog surface">
+      <h2 class="dialog-title">Prompt preview</h2>
+      <p class="hint">This is exactly what the model receives on your friend's next turn in this channel.</p>
+      <div id="prompt-preview"></div>
+      <div class="dialog-buttons">
+        <span class="spacer"></span>
+        <button type="button" class="button button-primary" data-close>Close</button>
+      </div>
+    </dialog>
+  </body>
+</html>

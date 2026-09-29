@@ -1,0 +1,2554 @@
+/*
+ * Kinaera's styles.
+ *
+ * The default look borrows from Discord: dark panels, a channel sidebar, and
+ * messages with an avatar, a name and a timestamp.
+ *
+ * THEME-READY
+ * -----------
+ * Every visual choice is a variable ("token") in the :root block below. The
+ * rules further down only ever use var(--token), never a raw colour, blur or
+ * shadow. A theme (stage 3.5) mostly just redefines tokens. For example, a
+ * glassy theme might set:
+ *
+ *   --sidebar-bg: rgb(255 255 255 / 0.25);
+ *   --sidebar-backdrop: blur(18px) saturate(1.4);
+ *   --app-background: url("sky.jpg") center / cover;
+ *
+ * For anything tokens can't express, themes can target the class names used
+ * here. Elements with the `surface` class never use ::before or ::after in
+ * this file; those are left free for themes to add highlights and glows.
+ *
+ * The full list of tokens and classes is in docs/theme-reference.md.
+ */
+
+/* ================================================================ tokens */
+
+:root {
+  color-scheme: dark;
+
+  /* Type */
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-heading: var(--font-body);
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* Literary posts */
+  --font-prose: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --prose-size: 17px;
+  --prose-line-height: 1.7;
+  --prose-max-width: 46em; /* long lines are hard to read */
+  --font-size: 16px;
+  --line-height: 1.5;
+
+  /* Text */
+  --text: #dbdee1;
+  --text-muted: #949ba4;
+  --text-strong: #f2f3f5;
+  --em-color: #c9cdfb; /* *italic* text, i.e. RP actions */
+
+  /* Accent colours */
+  --accent: #8b7cf6;
+  --accent-hover: #7a6ae8;
+  --accent-text: #ffffff; /* text on top of the accent colour */
+  --danger: #da373c;
+  --danger-text: #ffffff;
+  --error-bg: #4a2426;
+  --update-bg: #3b3561; /* the "Kinaera has been updated" banner */
+  --error-text: #f38b8f;
+
+  /* Who's who */
+  --user-color: #5fb3a1;
+  --friend-color: var(--accent);
+  --avatar-user-bg: var(--user-color);
+  --avatar-friend-bg: var(--friend-color);
+  --avatar-text: #ffffff;
+  /* Character avatars get a hue per character; these set the rest of the colour. */
+  --avatar-saturation: 45%;
+  --avatar-lightness: 52%;
+  --name-saturation: 60%; /* character names, in the same hue */
+  --name-lightness: 72%;
+
+  /* Shape */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-avatar: 50%;
+
+  /* The whole app's backdrop. Can be a colour, gradient or image. */
+  --app-background: #313338;
+
+  /* Sidebar */
+  --sidebar-width: 248px;
+  /* The server rail, left of the channels. */
+  --rail-width: 60px;
+  --sidebar-bg: #2b2d31;
+  --sidebar-border: none;
+  --sidebar-shadow: none;
+  --sidebar-backdrop: none; /* backdrop-filter, e.g. blur(16px) for glass */
+  /* The sidebar when it slides over the channel on a phone. Glass themes
+     usually want this more solid, so the channel doesn't show through. */
+  --drawer-bg: var(--sidebar-bg);
+  --sidebar-footer-bg: #232428;
+  --channel-link-color: var(--text-muted);
+  --channel-link-hover-bg: #35373c;
+  --channel-link-active-bg: #404249;
+  --channel-link-active-color: var(--text-strong);
+
+  /* Channel view */
+  --channel-background: transparent; /* on top of --app-background */
+  --header-bg: #313338;
+  --header-border: 1px solid #1f2023;
+  --header-shadow: none;
+  --header-backdrop: none;
+  --message-hover-bg: #2e3035;
+  --composer-bg: #313338;
+  --composer-border: none;
+  --composer-backdrop: none;
+
+  /* Controls */
+  --input-bg: #383a40;
+  --input-border: 1px solid transparent;
+  --input-focus-border: 1px solid var(--accent);
+  --button-bg: #4e5058;
+  --button-hover-bg: #6d6f78;
+  --button-text: var(--text-strong);
+  --button-border: none;
+  --button-shadow: none;
+  --button-primary-bg: var(--accent);
+  --button-primary-hover-bg: var(--accent-hover);
+  --button-primary-text: var(--accent-text);
+  --icon-button-hover-bg: #3a3c42;
+
+  /* Dialogs */
+  --dialog-bg: #313338;
+  --dialog-border: none;
+  --dialog-shadow: 0 8px 32px rgb(0 0 0 / 0.5);
+  --dialog-backdrop: none;
+  --scrim: rgb(0 0 0 / 0.6);
+  --code-bg: #1e1f22;
+
+  /* Scene breaks */
+  --scene-break-line: #4e5058;
+  --scene-break-text: var(--text-muted);
+  --scene-break-font: var(--font-prose);
+}
+
+/* ================================================================= base */
+
+* {
+  box-sizing: border-box;
+}
+
+/*
+ * Liquid glass (public/glass.js): a theme gives an element `--lens: 1` to
+ * make it refracting glass. Registered so it doesn't inherit: a glass
+ * bubble's children aren't glass too.
+ */
+@property --lens {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--app-background);
+  color: var(--text);
+  font: var(--font-size) / var(--line-height) var(--font-body);
+  /* Keep content clear of phone notches and the home bar. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+/* The `hidden` attribute must win over any display rule below. */
+[hidden] {
+  display: none !important;
+}
+
+/* ============================================================== layout */
+
+/* Sidebar on the left, channel view filling the rest. */
+.app {
+  display: flex;
+  height: 100%;
+}
+
+/*
+ * Empty layers for themes to draw on: four behind the whole app (children
+ * of <body>) and four in the channel view, for a channel theme. Hidden
+ * unless a theme shows them. The channel view's are only for a channel
+ * theme, so the app theme's never appear twice.
+ */
+.theme-layers {
+  display: none;
+  pointer-events: none;
+}
+
+.theme-layers > * {
+  display: block;
+  pointer-events: none;
+}
+
+.channel-view:not([data-channel-theme]) > .theme-layers,
+.channel-view[data-channel-theme=""] > .theme-layers {
+  display: none !important;
+}
+
+/*
+ * Every .surface is "positioned" (relative, fixed, or a modal dialog), so a
+ * theme's ::before/::after layers can be placed inside it with
+ * position: absolute without the theme changing layout. `isolation: isolate`
+ * makes each surface its own layer stack, so a theme layer with
+ * z-index: -1 sits above the surface's background but below its content.
+ */
+.surface {
+  isolation: isolate;
+}
+
+.sidebar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: calc(var(--sidebar-width) + var(--rail-width));
+  padding-left: var(--rail-width);
+  flex-shrink: 0;
+  background: var(--sidebar-bg);
+  border-right: var(--sidebar-border);
+  box-shadow: var(--sidebar-shadow);
+  backdrop-filter: var(--sidebar-backdrop);
+}
+
+.channel-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0; /* lets long words wrap instead of widening the page */
+  background: var(--channel-background);
+}
+
+/* Only phones need these. (.icon-button.menu-button is specific enough to
+   beat the .icon-button rule further down.) */
+.icon-button.menu-button,
+.sidebar-scrim {
+  display: none;
+}
+
+/*
+ * Phones: the sidebar slides in over the channel when you tap the menu
+ * button, with a dark scrim behind it. app.js toggles `sidebar-open`.
+ */
+@media (max-width: 799px) {
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 20;
+    width: min(calc(var(--sidebar-width) + var(--rail-width)), 92vw);
+    padding-top: env(safe-area-inset-top);
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    background: var(--drawer-bg);
+  }
+
+  .app.sidebar-open .sidebar {
+    transform: none;
+  }
+
+  .app.sidebar-open .sidebar-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    background: var(--scrim);
+  }
+
+  .icon-button.menu-button {
+    display: grid;
+  }
+}
+
+/* ============================================================= sidebar */
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 12px 12px 16px;
+}
+
+.server-name {
+  flex: 1;
+  margin: 0;
+  font: 700 17px var(--font-heading);
+  color: var(--text-strong);
+}
+
+.channel-list {
+  /* Positioned, so the channel indicator (below) can sit behind a link. */
+  position: relative;
+  flex: 1;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0 8px;
+  list-style: none;
+}
+
+/*
+ * A pill that sits behind the open channel's link and moves when you
+ * switch channels, stretching between the two like a drop of liquid (see
+ * moveChannelIndicator in app.js). Hidden unless a theme shows it: themes
+ * that don't use it keep the link's own highlight.
+ */
+.channel-indicator {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  transform-origin: 50% 0;
+}
+
+.channel-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-bottom: 2px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--channel-link-color);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.channel-link:hover {
+  background: var(--channel-link-hover-bg);
+  color: var(--text);
+}
+
+.channel-link[aria-current="page"] {
+  background: var(--channel-link-active-bg);
+  color: var(--channel-link-active-color);
+}
+
+.channel-link-name {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.channel-icon {
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+
+/* A small pulsing dot on channels where the friend is writing. */
+.channel-busy {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.2s infinite ease-in-out;
+}
+
+/* A channel with a message from your friend you haven't seen. */
+.channel-unread {
+  width: 8px;
+  height: 8px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.sidebar-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px calc(8px + env(safe-area-inset-bottom)) 8px;
+  background: var(--sidebar-footer-bg);
+}
+
+.friend-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.friend-card .avatar {
+  width: 32px;
+  height: 32px;
+  font-size: 14px;
+}
+
+.friend-card-name {
+  font-weight: 600;
+  color: var(--text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.friend-card-role {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ======================================================= channel header */
+
+.channel-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 6px 8px 6px 16px;
+  background: var(--header-bg);
+  border-bottom: var(--header-border);
+  box-shadow: var(--header-shadow);
+  backdrop-filter: var(--header-backdrop);
+}
+
+@media (max-width: 799px) {
+  .channel-header {
+    padding-left: 4px;
+  }
+}
+
+.channel-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+  font: 600 17px var(--font-heading);
+  color: var(--text-strong);
+}
+
+.channel-title #channel-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.channel-topic {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-left: 8px;
+  border-left: 1px solid var(--text-muted);
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.channel-topic:empty {
+  border: 0;
+}
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  color: var(--text);
+  background: var(--icon-button-hover-bg);
+}
+
+/* ============================================================ messages */
+
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 0;
+}
+
+.empty {
+  max-width: 34em;
+  margin: 18vh auto 0;
+  padding: 0 24px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.message {
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  gap: 0 12px;
+  padding: 8px 16px;
+}
+
+.message:hover,
+.message:focus-within {
+  background: var(--message-hover-bg);
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-avatar);
+  font-weight: 700;
+  color: var(--avatar-text);
+  background: var(--avatar-friend-bg);
+}
+
+.message .avatar {
+  grid-row: span 3;
+}
+
+.message[data-author="user"] .avatar {
+  background: var(--avatar-user-bg);
+}
+
+.message-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.message-author {
+  font-weight: 600;
+  color: var(--friend-color);
+}
+
+.message[data-author="user"] .message-author {
+  color: var(--user-color);
+}
+
+/* "Arlo" next to a character name: who's writing that character. */
+.message-badge {
+  padding: 0 5px;
+  border-radius: var(--radius-sm);
+  background: var(--channel-link-active-bg);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.message-time,
+.message-model {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* pre-wrap keeps the line breaks and blank lines the writer typed. */
+.message-content {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.message-content em {
+  color: var(--em-color);
+}
+
+.message-content strong {
+  color: var(--text-strong);
+}
+
+/*
+ * Each character has their own hue, set by app.js as --avatar-hue on the
+ * message, for their avatar and name. (Written specifically enough to beat
+ * the "you" and "friend" colours above.)
+ */
+.message.has-character .avatar {
+  background: hsl(var(--avatar-hue) var(--avatar-saturation) var(--avatar-lightness));
+}
+
+.message.has-character .message-author {
+  color: hsl(var(--avatar-hue) var(--name-saturation) var(--name-lightness));
+}
+
+/* ------------------------------------------------ casual & OOC: grouping */
+
+/*
+ * A run of messages from the same voice is grouped, Discord-style: after the
+ * first, the avatar and name are hidden and the gap is smaller.
+ */
+.message.continued {
+  padding-top: 1px;
+  padding-bottom: 1px;
+}
+
+.message.continued .avatar,
+.message.continued .message-meta {
+  display: none;
+}
+
+/* Without its avatar, a continued message still lines up with the text above. */
+.message.continued > :not(.avatar) {
+  grid-column: 2;
+}
+
+/*
+ * Casual bubbles are short and come in bursts, so their Edit/Delete buttons
+ * only appear on hover or when you tap the bubble (app.js toggles
+ * `selected`). The last reply's buttons, with Regenerate, always show.
+ */
+.message[data-mode="casual"] .message-actions:not(.always) {
+  display: none;
+}
+
+.message[data-mode="casual"]:hover .message-actions,
+.message[data-mode="casual"].selected .message-actions {
+  display: flex;
+}
+
+/* ----------------------------------------------------- literary: prose */
+
+/*
+ * A literary post is a prose block: a small byline, then the text in a
+ * book-like font across the width of the channel. No avatar column.
+ */
+.message[data-mode="literary"] {
+  display: block;
+  padding: 14px 20px;
+}
+
+.message[data-mode="literary"] .message-content,
+.message[data-mode="literary"] .message-meta,
+.message[data-mode="literary"] .message-actions {
+  max-width: var(--prose-max-width);
+}
+
+.message[data-mode="literary"] .avatar {
+  display: none;
+}
+
+.message[data-mode="literary"] .message-author {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.message[data-mode="literary"] .message-content {
+  margin-top: 4px;
+  font: var(--prose-size) / var(--prose-line-height) var(--font-prose);
+}
+
+/* ------------------------------------------------------- scene breaks */
+
+/* A line across the channel with the scene's title in the middle. */
+.scene-break {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 12px;
+  margin: 18px 20px;
+  color: var(--scene-break-text);
+}
+
+.scene-break::before,
+.scene-break::after {
+  content: "";
+  flex: 1 1 40px;
+  height: 1px;
+  background: var(--scene-break-line);
+}
+
+.scene-break-title {
+  font: italic 16px var(--scene-break-font);
+}
+
+/* Rename/Remove sit under the line, quietly. */
+.scene-break-actions {
+  order: 3;
+  flex-basis: 100%;
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+.scene-break-actions button {
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.scene-break-actions button:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+/*
+ * A scene's summary (stage 7), under the scene break that ended it: quiet,
+ * like a note in the margin.
+ */
+.scene-summary {
+  order: 4;
+  flex-basis: 100%;
+  max-width: var(--prose-max-width);
+  margin: 6px auto 0;
+  padding: 10px 14px;
+  border-left: 2px solid var(--scene-break-line);
+  color: var(--text-muted);
+  font-size: 14px;
+  text-align: left;
+}
+
+.scene-summary-text {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.scene-summary-text.empty {
+  font-style: italic;
+}
+
+.scene-summary-edit {
+  width: 100%;
+}
+
+.scene-summary-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.scene-summary-note {
+  margin-right: auto;
+  font-size: 12px;
+  font-style: italic;
+}
+
+.scene-summary-actions button {
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.scene-summary-actions button:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+/* A post that's still being sent. */
+.message.pending {
+  opacity: 0.6;
+}
+
+/* Edit / delete / regenerate. Always visible (phones have no hover), but quiet. */
+.message-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 2px;
+}
+
+.message-actions button,
+.link-button {
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.message-actions button:hover,
+.link-button:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.edit-box {
+  width: 100%;
+  min-height: 6em;
+  margin-top: 4px;
+}
+
+/* ============================================================ composer */
+
+.composer {
+  position: relative;
+  padding: 8px 16px calc(12px + env(safe-area-inset-bottom));
+  background: var(--composer-bg);
+  border-top: var(--composer-border);
+  backdrop-filter: var(--composer-backdrop);
+}
+
+.composer-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* One row: [new scene] ...space... [Friend's turn] [Send]. */
+.composer-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.composer-buttons .button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* "Posting as [Kestrel]" above the text box in casual scenes. */
+.posting-as-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.posting-as {
+  min-width: 0;
+  max-width: 60%;
+  padding: 4px 8px;
+  border: var(--input-border);
+  border-radius: var(--radius-md);
+  background: var(--input-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.composer-input {
+  resize: none;
+  max-height: 40vh; /* app.js grows the box as you type, up to this height */
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+/* Three bouncing dots, like a typing indicator. */
+.typing-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.typing-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  animation: bounce 1.2s infinite ease-in-out;
+}
+
+.typing-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.typing-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-4px);
+  }
+}
+
+/* "Kinaera has been updated. [Reload]" at the top of the channel. */
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--update-bg);
+  color: var(--text-strong);
+  font-size: 14px;
+}
+
+.update-banner > span {
+  flex: 1;
+}
+
+/* "Stop" next to "Arlo is writing…". Brighter than other link buttons, so it's easy to find. */
+.status .stop-button {
+  margin-left: 4px;
+  padding: 6px 10px; /* a comfortable size for a thumb */
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background: var(--error-bg);
+  font-size: 14px;
+}
+
+.error-banner > span {
+  flex: 1;
+}
+
+/* ============================================================ controls */
+
+textarea,
+input:not([type="radio"], [type="checkbox"]) {
+  width: 100%;
+  padding: 10px 12px;
+  border: var(--input-border);
+  border-radius: var(--radius-md);
+  background: var(--input-bg);
+}
+
+textarea:focus,
+input:not([type="radio"], [type="checkbox"]):focus {
+  outline: none;
+  border: var(--input-focus-border);
+}
+
+.button {
+  padding: 8px 16px;
+  border: var(--button-border);
+  border-radius: var(--radius-md);
+  background: var(--button-bg);
+  box-shadow: var(--button-shadow);
+  color: var(--button-text);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.button:hover {
+  background: var(--button-hover-bg);
+}
+
+.button-primary {
+  background: var(--button-primary-bg);
+  color: var(--button-primary-text);
+}
+
+.button-primary:hover {
+  background: var(--button-primary-hover-bg);
+}
+
+.button-danger {
+  background: var(--danger);
+  color: var(--danger-text);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ============================================================= dialogs */
+
+.dialog {
+  width: min(640px, 100vw - 24px);
+  max-height: calc(100vh - 24px);
+  padding: 20px;
+  border: var(--dialog-border);
+  border-radius: var(--radius-lg);
+  background: var(--dialog-bg);
+  box-shadow: var(--dialog-shadow);
+  backdrop-filter: var(--dialog-backdrop);
+  color: var(--text);
+}
+
+.dialog::backdrop {
+  background: var(--scrim);
+}
+
+.dialog-title {
+  margin: 0 0 12px;
+  font: 700 20px var(--font-heading);
+  color: var(--text-strong);
+}
+
+.dialog label,
+.kind-picker legend {
+  display: block;
+  margin-top: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+
+.dialog textarea {
+  resize: vertical;
+}
+
+.dialog select {
+  width: 100%;
+  padding: 10px 12px;
+  border: var(--input-border);
+  border-radius: var(--radius-md);
+  background: var(--input-bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.hint code {
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  background: var(--code-bg);
+  font-family: var(--font-mono);
+}
+
+.hint {
+  margin: 2px 0 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.inline {
+  display: flex;
+  gap: 8px;
+}
+
+.inline input {
+  flex: 1;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  /* Line the inputs up along the bottom even if a label wraps onto two lines. */
+  align-items: end;
+}
+
+.dialog-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.form-error {
+  color: var(--error-text);
+  font-size: 14px;
+}
+
+.danger-zone {
+  margin-top: 20px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* Settings → Recent wake-ups. */
+.wake-log {
+  margin-top: 12px;
+}
+
+.wake-log > summary {
+  cursor: pointer;
+}
+
+.wake-log-list {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+}
+
+.wake-log-list li {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--scene-break-line);
+}
+
+/* Channel settings → Memory: the channel's summaries. */
+.memory {
+  margin-top: 20px;
+}
+
+.memory > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.memory-text {
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: var(--input-bg);
+  color: var(--text-muted);
+  font-size: 14px;
+  white-space: pre-wrap;
+}
+
+.memory-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.danger-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* "Roleplay" / "Out of character" choice in the new channel dialog. */
+.kind-picker {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.dialog .kind-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: var(--input-border);
+  border-radius: var(--radius-md);
+  background: var(--input-bg);
+  font-size: var(--font-size);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.mode-picker {
+  margin-top: 14px;
+}
+
+.kind-option:has(input:checked) {
+  border: var(--input-focus-border);
+}
+
+.kind-option input {
+  margin-top: 5px;
+  accent-color: var(--accent);
+}
+
+/* Prompt preview: one block per API message, labelled with its role. */
+.prompt-message {
+  margin-top: 10px;
+}
+
+.prompt-role {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.prompt-message pre {
+  margin: 4px 0 0;
+  padding: 10px;
+  border-radius: var(--radius-md);
+  background: var(--code-bg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 13px / 1.5 var(--font-mono);
+}
+
+/* ========================================================= appearance */
+
+/* The theme cards: a colour strip, a name, a short description. */
+.theme-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.theme-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border: var(--input-border);
+  border-radius: var(--radius-md);
+  background: var(--input-bg);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.theme-card[aria-checked="true"] {
+  border: var(--input-focus-border);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.theme-swatch {
+  display: flex;
+  height: 44px;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+}
+
+.theme-swatch > span {
+  flex: 1;
+}
+
+.theme-name {
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.theme-badge {
+  padding: 0 5px;
+  border-radius: var(--radius-sm);
+  background: var(--channel-link-active-bg);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.theme-description {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.theme-actions {
+  margin-top: 10px;
+}
+
+.effects-picker {
+  margin-top: 14px;
+}
+
+/* A short notice at the top of the channel, e.g. about glass effects. */
+.notice-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--update-bg);
+  color: var(--text-strong);
+  font-size: 14px;
+}
+
+.notice-banner > span {
+  flex: 1;
+}
+
+/* ======================================================= theme editor */
+
+.theme-editor {
+  width: min(820px, 100vw - 24px);
+}
+
+/* CSS is easier to edit in a fixed-width font. */
+.code-input {
+  font: 13px / 1.5 var(--font-mono);
+  tab-size: 2;
+}
+
+.lite-css {
+  margin-top: 12px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.theme-files {
+  margin: 4px 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.theme-files li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 3px 0;
+}
+
+.theme-files button {
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* "Add files…" is a label that opens the hidden file picker; undo the
+   form-label styling it would otherwise get. */
+.dialog label.file-button {
+  display: inline-block;
+  margin-top: 0;
+  font-size: var(--font-size);
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--button-text);
+}
+
+/* ============================================================ notebook */
+
+/* For screen readers only: a label that's clear from what's around it. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.notebook,
+.entry-editor {
+  width: min(760px, 100vw - 24px);
+}
+
+.notebook-actions {
+  margin-top: 8px;
+}
+
+.notebook-list {
+  margin-top: 12px;
+}
+
+.notebook-folder + .notebook-folder {
+  margin-top: 14px;
+}
+
+.notebook-folder-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  border-bottom: var(--input-border);
+}
+
+.notebook-folder-name {
+  font: 600 15px var(--font-heading);
+  color: var(--text-strong);
+}
+
+.notebook-folder-header .link-button {
+  margin-left: auto;
+}
+
+.notebook-entries {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* One entry in the list: avatar, name, badges. The whole row opens it. */
+.notebook-entry {
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  gap: 0 10px;
+  align-items: center;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.notebook-entry:hover {
+  background: var(--message-hover-bg);
+}
+
+.notebook-entry .avatar {
+  grid-row: span 2;
+}
+
+.notebook-entry-name {
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.notebook-entry-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.entry-badge {
+  padding: 0 5px;
+  border-radius: var(--radius-sm);
+  background: var(--channel-link-active-bg);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* Characters' avatars in their own colour, like their messages. */
+.entry-avatar {
+  width: 32px;
+  height: 32px;
+  font-size: 14px;
+  background: hsl(var(--avatar-hue) var(--avatar-saturation) var(--avatar-lightness));
+}
+
+.entry-avatar[data-kind="lore"] {
+  border-radius: var(--radius-sm);
+}
+
+/* Suggested changes waiting for review, above the entries. */
+.suggestion-list {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: var(--input-border);
+  border-radius: var(--radius-md);
+  background: var(--update-bg);
+}
+
+.suggestion-title {
+  margin: 0 0 4px;
+  font: 600 15px var(--font-heading);
+  color: var(--text-strong);
+}
+
+.suggestion {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 4px 0;
+}
+
+.suggestion-text {
+  flex: 1 1 240px;
+}
+
+.suggestion .hint {
+  margin: 0;
+}
+
+/* ------------------------------------------------------ entry editor */
+
+.entry-access {
+  margin-top: -6px;
+}
+
+/* A field: label on the left, value on the right (stacked on phones). */
+.entry-field {
+  display: grid;
+  grid-template-columns: minmax(90px, 160px) 1fr auto;
+  gap: 6px;
+  align-items: start;
+  margin-top: 6px;
+}
+
+.entry-field-label {
+  font-weight: 600;
+}
+
+.entry-field-remove {
+  padding: 10px 4px;
+}
+
+.add-field {
+  margin-top: 8px;
+}
+
+.entry-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 8px 0 0;
+  font-size: 14px;
+}
+
+.entry-links-label {
+  color: var(--text-muted);
+}
+
+.entry-link {
+  font-size: inherit;
+  color: var(--accent);
+}
+
+.entry-link.missing {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.entry-settings {
+  margin: 18px 0 0;
+  padding: 4px 12px 12px;
+  border: var(--input-border);
+  border-radius: var(--radius-md);
+}
+
+.entry-settings legend {
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.folder-settings-grid {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+@media (max-width: 599px) {
+  .entry-field {
+    grid-template-columns: 1fr auto;
+  }
+
+  .entry-field-value {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .entry-settings-grid,
+  .folder-settings-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ------------------------------------------------ cast (channel settings) */
+
+.cast-list {
+  margin: 4px 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.cast-member {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.cast-member-name {
+  font-size: var(--font-size);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.cast-member.hidden-entry .cast-member-name {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.cast-unpin {
+  margin-left: auto;
+}
+
+/* ============================================ profiles and roulettes */
+
+.section-title {
+  margin: 18px 0 6px;
+  font: 600 15px var(--font-heading);
+  color: var(--text-strong);
+}
+
+.profile-list {
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+/* One profile or roulette: its name and badges. The whole row opens it. */
+.profile-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.profile-row:hover {
+  background: var(--message-hover-bg);
+}
+
+.profile-row-name {
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.assignment-grid {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.link-button.inline-link {
+  font-size: inherit;
+  color: var(--accent);
+}
+
+/* A checkbox with a title and a hint, like the kind picker's options. */
+.dialog label.check-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: var(--input-border);
+  border-radius: var(--radius-md);
+  background: var(--input-bg);
+  font-size: var(--font-size);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.check-option input {
+  margin-top: 5px;
+  accent-color: var(--accent);
+}
+
+.advanced {
+  margin-top: 14px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* A roulette's rows: profile, weight, share, remove. */
+.roulette-entry {
+  display: grid;
+  grid-template-columns: 1fr 80px 44px auto;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.roulette-share {
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+@media (max-width: 599px) {
+  .assignment-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ============================================ stage 6: your friend acts */
+
+/* A turn's actions, under its messages: one line that opens into details. */
+.activity {
+  padding: 0 16px 4px 68px;
+}
+
+.activity-summary {
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.activity-summary:hover {
+  color: var(--text);
+}
+
+.activity.has-errors .activity-summary {
+  color: var(--error-text);
+}
+
+.activity-details,
+.tool-log-list {
+  margin: 4px 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+/* One tool call: its name and badges, a summary, and the raw details. */
+.tool-call {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: var(--input-border);
+  border-radius: var(--radius-md);
+  background: var(--input-bg);
+  font-size: 14px;
+}
+
+.tool-call[data-status="error"] {
+  border-color: var(--error-text);
+}
+
+.tool-call-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.tool-call-name {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.tool-call[data-status="error"] .tool-call-summary {
+  color: var(--error-text);
+}
+
+.tool-call-summary {
+  margin: 4px 0 0;
+}
+
+.tool-call-raw {
+  margin-top: 4px;
+  color: var(--text-muted);
+}
+
+.tool-call-raw pre {
+  margin: 4px 0 0;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  background: var(--code-bg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 12px / 1.5 var(--font-mono);
+}
+
+.tool-log {
+  width: min(820px, 100vw - 24px);
+}
+
+.tool-log-actions {
+  align-items: center;
+  margin-top: 8px;
+}
+
+/* A small checkbox with its label, inline. */
+.dialog label.check-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text);
+}
+
+.check-inline input {
+  accent-color: var(--accent);
+}
+
+.tool-test-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.tool-test {
+  flex: 1;
+  margin: 0;
+}
+
+.tool-test[data-verdict="native"] {
+  color: var(--text);
+}
+
+.tool-test[data-verdict="none"],
+.tool-test[data-verdict="broken"] {
+  color: var(--error-text);
+}
+
+/* ------------------------------------------------------------ the inbox */
+
+.inbox-button {
+  position: relative;
+  margin-left: auto;
+}
+
+/* The count of things waiting for you, on the inbox button. */
+.inbox-count {
+  position: absolute;
+  top: 0;
+  right: 0;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--danger);
+  color: var(--danger-text);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+}
+
+.inbox-card {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: var(--input-border);
+  border-radius: var(--radius-md);
+  background: var(--input-bg);
+}
+
+.inbox-card-title {
+  margin: 0;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.inbox-card-text {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+}
+
+.inbox-card-buttons {
+  margin-top: 8px;
+}
+
+/* A suggestion's before and after, per changed part. */
+.suggestion-diff {
+  margin: 6px 0 0;
+  font-size: 14px;
+}
+
+.suggestion-diff dt {
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.suggestion-diff dd {
+  margin: 2px 0 0;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  white-space: pre-wrap;
+}
+
+.diff-before {
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.diff-after {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+/* ------------------------------------------------------------- comments */
+
+.comment-mark {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  color: inherit;
+  cursor: pointer;
+}
+
+.comment-mark.resolved {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+/* The 💬 count under a message with comments. */
+.message-comments {
+  grid-column: 2;
+  justify-self: start;
+  margin-top: 2px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--channel-link-active-bg);
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* Floats below text you select in a message. */
+.comment-float {
+  position: fixed;
+  z-index: 20;
+  box-shadow: var(--dialog-shadow);
+}
+
+.thread-picker {
+  margin-bottom: 8px;
+}
+
+.thread-quote {
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border-left: 3px solid var(--accent);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.thread-comments {
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.thread-comment {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  padding: 6px 0;
+}
+
+.thread-comment-author {
+  font-weight: 600;
+  color: var(--friend-color);
+}
+
+.thread-comment[data-author="user"] .thread-comment-author {
+  color: var(--user-color);
+}
+
+.thread-comment-note {
+  flex-basis: 100%;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.thread-status {
+  padding: 0 0 8px;
+}
+
+/* ---------------------------------------------------------- attachments */
+
+.attach-row,
+.message-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.message-attachments {
+  grid-column: 2;
+  margin-top: 4px;
+}
+
+.attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border: var(--input-border);
+  border-radius: 999px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 13px;
+}
+
+button.attach-chip {
+  cursor: pointer;
+}
+
+.attach-list {
+  max-height: 50vh;
+  margin: 8px 0 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.dialog label.attach-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 4px 2px;
+  font-size: var(--font-size);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.attach-option input {
+  accent-color: var(--accent);
+}
+
+/* ======================================================= theme options */
+
+/* Sliders a theme offers, in Appearance. */
+.theme-options {
+  margin-top: 14px;
+}
+
+.theme-option-group {
+  margin: 0 0 10px;
+  padding: 6px 12px 10px;
+  border: var(--input-border);
+  border-radius: var(--radius-md);
+}
+
+.theme-option-group legend {
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.dialog label.theme-option {
+  display: grid;
+  grid-template-columns: minmax(110px, 1fr) 2fr 48px;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  font-size: 14px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text);
+}
+
+.theme-option input[type="range"] {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  accent-color: var(--accent);
+}
+
+.theme-option-value {
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+/* ------------------------------------------------------------ library */
+
+.library-list,
+.library-results {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+/* A document, or a search result: the whole row opens it. */
+.library-doc,
+.library-hit {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.library-doc:hover,
+.library-hit:hover {
+  background: var(--message-hover-bg);
+}
+
+.library-hit-where {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.library-snippet {
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.library-snippet mark {
+  padding: 0 1px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: inherit;
+}
+
+.library-channels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-bottom: 8px;
+}
+
+/* A passage, as written: scripts rely on their spacing. */
+.library-passage {
+  max-height: 60vh;
+  margin: 0 0 12px;
+  padding: 12px;
+  overflow: auto;
+  border-radius: var(--radius-md);
+  background: var(--input-bg, rgba(0, 0, 0, 0.15));
+  color: var(--text);
+  font: 13px/1.45 ui-monospace, "Courier Prime", "Courier New", monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---------------------------------------------------------- reactions */
+
+.message-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.reaction {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 26px;
+  padding: 1px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--channel-link-active-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.reaction:hover {
+  border-color: var(--text-muted);
+}
+
+/* Yours: in the accent colour. */
+.reaction.mine {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.reaction-emoji {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.reaction-count {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A custom emoji: text-sized in messages, a little larger on its own. */
+.custom-emoji {
+  width: 1.375em;
+  height: 1.375em;
+  object-fit: contain;
+  vertical-align: -0.3em;
+}
+
+.reaction .custom-emoji {
+  width: 18px;
+  height: 18px;
+  vertical-align: middle;
+}
+
+.reaction-picker {
+  position: fixed;
+  z-index: 50;
+  width: min(300px, calc(100vw - 16px));
+  padding: 10px;
+  border: var(--dialog-border);
+  border-radius: var(--radius-md);
+  background: var(--dialog-bg);
+  box-shadow: var(--dialog-shadow);
+  backdrop-filter: var(--dialog-backdrop);
+  color: var(--text);
+}
+
+.reaction-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 2px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.reaction-picker-grid button {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  font-size: 22px;
+  cursor: pointer;
+}
+
+.reaction-picker-grid button:hover {
+  background: var(--message-hover-bg);
+}
+
+.reaction-picker-grid .custom-emoji {
+  width: 26px;
+  height: 26px;
+}
+
+.reaction-picker-other {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0 4px;
+}
+
+.reaction-picker-other input {
+  flex: 1;
+  min-width: 0;
+}
+
+.emoji-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 6px 12px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.emoji-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.emoji-list code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.emoji-list .custom-emoji {
+  width: 28px;
+  height: 28px;
+}
+
+/* --------------------------------------------------------- categories */
+
+/* A category's header: small capitals, a chevron that turns when open. */
+.category-item {
+  display: flex;
+  align-items: center;
+  margin-top: 14px;
+  margin-bottom: 2px;
+}
+
+.category-toggle {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 4px 4px 4px 2px;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-align: left;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.category-toggle:hover {
+  color: var(--text);
+}
+
+.category-chevron {
+  display: inline-block;
+  width: 12px;
+  font-size: 15px;
+  line-height: 1;
+  text-align: center;
+  transition: transform 0.15s ease;
+}
+
+.category-toggle[aria-expanded="true"] .category-chevron {
+  transform: rotate(90deg);
+}
+
+.category-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.category-menu {
+  width: 26px;
+  height: 26px;
+  opacity: 0;
+  font-size: 16px;
+}
+
+.category-item:hover .category-menu,
+.category-menu:focus-visible {
+  opacity: 1;
+}
+
+/* Touch screens have no hover: always show it. */
+@media (hover: none) {
+  .category-menu {
+    opacity: 0.7;
+  }
+}
+
+/* Dragging: the item left behind fades, a copy follows, a line shows where it lands. */
+.drag-source {
+  opacity: 0.35;
+}
+
+.drag-ghost {
+  position: fixed;
+  z-index: 60;
+  margin: 0;
+  list-style: none;
+  pointer-events: none;
+  opacity: 0.92;
+  transform: scale(1.03);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+  border-radius: var(--radius-sm);
+  background: var(--sidebar-bg, var(--dialog-bg));
+}
+
+.drop-marker {
+  position: absolute;
+  right: 8px;
+  left: 8px;
+  z-index: 2;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.inline-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.inline-row select {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ------------------------------------------------ servers and friends */
+
+/* The rail: a column of round server buttons, left of the channels. */
+.server-rail {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: var(--rail-width);
+  padding: 12px 0;
+  overflow-y: auto;
+  border-right: 1px solid color-mix(in srgb, var(--text-muted) 18%, transparent);
+  background: color-mix(in srgb, var(--sidebar-bg, #000) 70%, #000 30%);
+}
+
+.server-button {
+  position: relative;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+  transition: border-radius 0.15s ease;
+}
+
+.server-button .avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: inherit;
+  font-size: 18px;
+}
+
+/* The open server: a squircle, and a pill on the rail's edge, like Discord. */
+.server-button[aria-current="true"],
+.server-button:hover {
+  border-radius: 14px;
+}
+
+.server-button[aria-current="true"]::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: -8px;
+  width: 4px;
+  border-radius: 0 4px 4px 0;
+  background: var(--text-strong);
+}
+
+.server-unread {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--sidebar-bg, #222);
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.server-add {
+  border: 1px dashed var(--text-muted);
+  color: var(--text-muted);
+  font-size: 22px;
+  line-height: 1;
+}
+
+.server-add:hover {
+  color: var(--text-strong);
+  border-color: var(--text-strong);
+}
+
+.server-name-button {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* An avatar in a friend's colour, or an emoji avatar. */
+.avatar.colored-avatar {
+  background: hsl(var(--friend-hue) var(--avatar-saturation, 55%) var(--avatar-lightness, 55%));
+}
+
+.avatar.emoji-avatar {
+  font-size: 1.15em;
+}
+
+.friend-card {
+  cursor: pointer;
+  border-radius: var(--radius-md);
+}
+
+.friend-card:hover {
+  background: var(--channel-link-hover-bg);
+}
+
+/* In a server with several friends: each one's channels under their name. */
+.friend-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0 4px;
+  padding: 0 4px;
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.friend-section .avatar {
+  width: 22px;
+  height: 22px;
+  font-size: 11px;
+}
+
+.friend-dialog-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.friend-dialog-head .avatar {
+  width: 44px;
+  height: 44px;
+  font-size: 20px;
+}
+
+.server-friend-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.server-friend-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.server-friend-list .avatar {
+  width: 28px;
+  height: 28px;
+  font-size: 13px;
+}
