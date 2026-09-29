@@ -17,11 +17,12 @@
  *   - `regenerate`: their reply, replaced by a new one (the old one is kept)
  *   - `clear`: every message in a channel
  *   - `settings`: their name, look, or how they write
+ *   - `ask`: your answer to something they asked (or setting it aside)
  */
 
 import type { Database } from "bun:sqlite";
 
-export type InterventionKind = "edit" | "delete" | "regenerate" | "clear" | "settings";
+export type InterventionKind = "edit" | "delete" | "regenerate" | "clear" | "settings" | "ask";
 
 export interface Intervention {
   id: string;

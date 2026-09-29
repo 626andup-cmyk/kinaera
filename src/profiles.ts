@@ -81,6 +81,10 @@ function profileInput(input: Record<string, unknown>): Partial<Profile> {
     if (typeof input.supportsTools !== "boolean") throw new ValidationError("supportsTools must be true or false");
     clean.supportsTools = input.supportsTools;
   }
+  if (input.consultant !== undefined) {
+    if (typeof input.consultant !== "boolean") throw new ValidationError("consultant must be true or false");
+    clean.consultant = input.consultant;
+  }
   if (input.quirkPrompt !== undefined) clean.quirkPrompt = text(input.quirkPrompt, "quirkPrompt", 20_000, false);
   if (input.extraParams !== undefined) {
     clean.extraParams = text(input.extraParams, "extraParams", 5_000, false);
@@ -100,6 +104,7 @@ interface ProfileRow {
   top_p: number | null;
   reasoning_effort: ReasoningEffort | null;
   supports_tools: number;
+  consultant: number;
   quirk_prompt: string;
   extra_params: string;
   position: number;
@@ -116,6 +121,7 @@ function toProfile(row: ProfileRow): Profile {
     topP: row.top_p,
     reasoningEffort: row.reasoning_effort,
     supportsTools: row.supports_tools === 1,
+    consultant: row.consultant === 1,
     quirkPrompt: row.quirk_prompt,
     extraParams: row.extra_params,
     position: row.position,
@@ -150,9 +156,9 @@ export class Profiles {
     this.db
       .query(
         `INSERT INTO profiles (id, name, model, temperature, max_tokens, top_p, reasoning_effort, supports_tools,
-                               quirk_prompt, extra_params, position, created_at)
+                               consultant, quirk_prompt, extra_params, position, created_at)
          VALUES ($id, $name, $model, $temperature, $maxTokens, $topP, $reasoningEffort, $supportsTools,
-                 $quirkPrompt, $extraParams, $position, $now)`,
+                 $consultant, $quirkPrompt, $extraParams, $position, $now)`,
       )
       .run({
         id,
@@ -163,6 +169,7 @@ export class Profiles {
         topP: clean.topP ?? null,
         reasoningEffort: clean.reasoningEffort ?? null,
         supportsTools: clean.supportsTools === false ? 0 : 1,
+        consultant: clean.consultant ? 1 : 0,
         quirkPrompt: clean.quirkPrompt ?? "",
         extraParams: clean.extraParams ?? "",
         position: next,
@@ -177,7 +184,7 @@ export class Profiles {
     this.db
       .query(
         `UPDATE profiles SET name = $name, model = $model, temperature = $temperature, max_tokens = $maxTokens,
-                top_p = $topP, reasoning_effort = $reasoningEffort, supports_tools = $supportsTools,
+                top_p = $topP, reasoning_effort = $reasoningEffort, supports_tools = $supportsTools, consultant = $consultant,
                 quirk_prompt = $quirkPrompt, extra_params = $extraParams
           WHERE id = $id`,
       )
@@ -190,6 +197,7 @@ export class Profiles {
         topP: merged.topP,
         reasoningEffort: merged.reasoningEffort,
         supportsTools: merged.supportsTools ? 1 : 0,
+        consultant: merged.consultant ? 1 : 0,
         quirkPrompt: merged.quirkPrompt,
         extraParams: merged.extraParams,
       });

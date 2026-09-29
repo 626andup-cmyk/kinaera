@@ -37,6 +37,7 @@
  */
 
 import { CancelledError, createChatCompletion, type ApiOptions, type ToolSpec } from "./nanogpt.ts";
+import type { Decider } from "./jev.ts";
 import { replyToMessages } from "./posts.ts";
 import { parseExtraParams } from "./profiles.ts";
 import { buildPromptStack, isNothing, type PromptMemory, type PromptReview, type PromptThread, type WakeContext } from "./prompt.ts";
@@ -188,6 +189,7 @@ export function promptForChannel(store: Store, channelId: string, options: Promp
     threads: openThreads(store, channelId, byId, replying?.id),
     reviews: tools ? reviewsFor(store) : [],
     recentActions: recentActions(store, channelId),
+    inbox: inboxFor(store).lines,
     tools,
     replyingTo: replying
       ? {
@@ -333,21 +335,48 @@ function reviewsFor(store: Store): PromptReview[] {
   });
 }
 
-/** Tool actions that changed something (not reading), newest last, plus how proposals went. */
+/** Tool actions that changed something (not reading), newest last. */
 function recentActions(store: Store, channelId: string): string[] {
-  const quiet = new Set(["read_notebook_entry", "search_notebook", "do_nothing", "read_message_history", "read_interventions"]);
-  const actions = store.toolLog
+  const quiet = new Set(["read_notebook_entry", "search_notebook", "do_nothing", "read_message_history", "read_interventions", "check"]);
+  return store.toolLog
     .forChannel(channelId, 60)
     .filter((call) => call.status === "ok" && !quiet.has(call.name))
     .slice(-8)
     .map((call) => `${call.summary} (${ago(call.createdAt)})`);
-  const proposals = [
-    ...store.proposals.pending().map((p) => `You proposed deleting #${p.targetName}; the user hasn't decided yet.`),
-    ...store.proposals
-      .recentlyResolved(3)
-      .map((p) => `The user ${p.status === "approved" ? "approved" : "denied"} your proposal to delete #${p.targetName}.`),
-  ];
-  return [...actions, ...proposals];
+}
+
+/** Outcomes stay in the prompt this long after they happen (and always until they've been in one turn). */
+const INBOX_MEMORY_MS = 24 * 3_600_000;
+
+/**
+ * The inbox as your friend sees it (src/inbox.ts): what they're waiting
+ * on, and what came of it (your answers, how proposals went). An outcome is
+ * carried until it has been in one of their turns, and for a day after it
+ * happened. `deliver` is the outcomes to mark as delivered once this turn
+ * is done.
+ */
+export function inboxFor(store: Store, now = Date.now()): { lines: string[]; deliver: string[] } {
+  const quote = (text: string) => `"${text.replace(/\s+/g, " ").trim()}"`;
+  const lines: string[] = [];
+  const deliver: string[] = [];
+  const items = store.inbox.recent(100).reverse();
+  for (const item of items) {
+    const fresh = item.status !== "open" && (item.deliveredAt === null || now - new Date(item.resolvedAt ?? item.createdAt).getTime() < INBOX_MEMORY_MS);
+    if (item.status !== "open" && !fresh) continue;
+    if (item.status !== "open" && item.deliveredAt === null) deliver.push(item.id);
+    const isNew = item.status !== "open" && item.deliveredAt === null ? "New: " : "";
+    if (item.kind === "ask") {
+      const asked = `You asked the user (${item.askKind}): ${quote(item.text)}.`;
+      if (item.status === "open") lines.push(`${asked} No answer yet.`);
+      else if (item.status === "answered") lines.push(`${isNew}${asked} They answered: ${quote(item.answer ?? "")}`);
+      else lines.push(`${isNew}${asked} They set it aside without answering.`);
+    } else if (item.status === "open") {
+      lines.push(`You proposed deleting #${item.targetName}; the user hasn't decided yet.`);
+    } else {
+      lines.push(`${isNew}The user ${item.status === "approved" ? "approved" : "denied"} your proposal to delete #${item.targetName}.`);
+    }
+  }
+  return { lines, deliver };
 }
 
 /** "5 minutes ago", "2 hours ago", "3 days ago". */
@@ -395,6 +424,9 @@ export class Friend {
    * Different channels don't block each other.
    */
   private readonly writingIn = new Map<string, AbortController>();
+
+  /** Jev, for the `check` tool, once the server has set it up. */
+  decider: Decider | null = null;
 
   constructor(
     private readonly store: Store,
@@ -463,13 +495,22 @@ export class Friend {
     this.writingIn.set(channelId, controller);
     try {
       const profile = options.profileId ? this.store.profiles.get(options.profileId) : pickProfile(this.store, channel);
+      // Inbox outcomes this turn's prompt carries: delivered once it's done.
+      const delivering = inboxFor(this.store).deliver;
       const conversation: ApiMessage[] = promptForChannel(this.store, channelId, {
         excludeIds: options.replacing,
         profile,
         replyingTo,
         wake: options.wake,
       });
-      const context: ToolContext = { store: this.store, channel, mode: replyingTo ? "comment" : "post" };
+      const context: ToolContext = {
+        store: this.store,
+        channel,
+        mode: replyingTo ? "comment" : "post",
+        decider: this.decider ?? undefined,
+        api: this.api,
+        turn: { consults: 0 },
+      };
       const tools = profile.supportsTools ? toolSpecs(context) : [];
       const turnId = crypto.randomUUID();
 
@@ -484,6 +525,7 @@ export class Friend {
       // Belt and braces: if the turn was stopped just as the reply arrived,
       // don't save it.
       if (controller.signal.aborted) throw new CancelledError();
+      this.store.inbox.markDelivered(delivering);
       const seconds = ((Date.now() - started) / 1000).toFixed(1);
       console.log(
         `[friend] turn finished in ${seconds}s after ${loop.rounds} round(s), ${loop.toolCalls.length} tool call(s)` +
@@ -604,7 +646,8 @@ export class Friend {
             round,
             name: call.name,
             arguments: call.arguments,
-            result: JSON.stringify(outcome.result),
+            // Private text (the journal, drafts) is never logged (see ToolOutcome.logResult).
+            result: JSON.stringify(outcome.logResult ?? outcome.result),
             status: outcome.ok ? "ok" : "error",
             summary: outcome.summary,
             source: call.source,

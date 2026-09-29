@@ -111,7 +111,7 @@ export const NUDGES: Record<ChannelKind, { continue: string; opening: string }> 
  * message from you: you opened the app, a scene ended, something is
  * waiting for them, or (endgame) the heartbeat.
  */
-export type WakeReason = "opened" | "away" | "scene-ended" | "review" | "heartbeat";
+export type WakeReason = "opened" | "away" | "scene-ended" | "review" | "heartbeat" | "answer";
 
 /** What a wake-up turn is told about why it's happening. */
 export interface WakeContext {
@@ -185,6 +185,7 @@ export function describeWake(wake: WakeContext, tools: boolean): string {
     "scene-ended": `The user just ended a scene${wake.scene ? ` in #${wake.scene.channel}` : ""}.`,
     review: "The user suggested a notebook change that's waiting for your review.",
     heartbeat: "Nobody asked: you're checking in on your own, the way a friend texts out of nowhere.",
+    answer: `The user answered something you asked them (see "What you've asked of the user").`,
   };
   const parts = [`You're taking a turn on your own: the user hasn't sent you anything new. ${why[wake.reason]} ${since}`];
   if (wake.scene) {
@@ -288,8 +289,10 @@ export interface PromptInput {
   threads?: PromptThread[];
   /** Suggestions waiting for your friend's review (only offered with tools). */
   reviews?: PromptReview[];
-  /** Short lines about what your friend did recently: tool actions, and how their proposals went. */
+  /** Short lines about what your friend did recently: tool actions. */
   recentActions?: string[];
+  /** What your friend asked of the user, and what came of it (src/inbox.ts). */
+  inbox?: string[];
   /** Whether your friend can use tools this turn (adds guidance on them). */
   tools?: boolean;
   /**
@@ -354,6 +357,7 @@ export function buildPromptStack({
   threads,
   reviews,
   recentActions,
+  inbox,
   tools,
   replyingTo,
   wake,
@@ -408,6 +412,7 @@ export function buildPromptStack({
     { title: "Comment threads", content: describeThreads(threads ?? []) },
     { title: "Waiting for your review", content: tools ? describeReviews(reviews ?? []) : null },
     { title: "What you did recently", content: (recentActions ?? []).map((line) => `- ${line}`).join("\n") },
+    { title: "What you've asked of the user", content: (inbox ?? []).map((line) => `- ${line}`).join("\n") },
     { title: "Tools", content: tools ? toolGuidance(channel.kind) : null },
     // Honest notes on how things work here (defaults/standing.md).
     { title: "Good to know", content: standingNotes(tools ?? false) },
@@ -501,7 +506,9 @@ function describeReviews(reviews: PromptReview[]): string | null {
  */
 export function standingNotes(tools: boolean): string | null {
   const notes = wording("standing");
-  const lines = [tools ? notes.history : notes["history-no-tools"]].filter((line): line is string => Boolean(line?.trim()));
+  const lines = [tools ? notes.history : notes["history-no-tools"], tools ? notes["tools-visible"] : undefined].filter((line): line is string =>
+    Boolean(line?.trim()),
+  );
   return lines.length ? lines.join("\n\n") : null;
 }
 

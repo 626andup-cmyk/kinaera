@@ -22,8 +22,8 @@
  *   texting.js      texting in OOC
  *   notebook.js     the notebook, entries, folders and casts
  *   library.js      the reference library
- *   inbox.js        proposals and suggestions
- *   history.js      message history, and the intervention log
+ *   inbox.js        asks, proposals and suggestions
+ *   history.js      message history, the intervention log, the check log
  *   settings.js     settings, profiles, roulettes, logs
  *   themes.js       themes and appearance
  *   friend-page.js  friends, servers and the friend menu
@@ -55,7 +55,7 @@ import { newComment, openThread, resolveThread, sendComment, updateCommentButton
 import { autoGrow, openAttach, renderAttachList } from "./composer.js";
 import { $, els, hideError, readLocal, showError, state, writeLocal } from "./core.js";
 import { FRIEND_KEY, loadHub, pickFriend, switchFriend } from "./friend-page.js";
-import { openInterventions } from "./history.js";
+import { copyCheckLog, openCheckLog, openInterventions } from "./history.js";
 import { openInbox } from "./inbox.js";
 import {
   deleteLibraryDoc,
@@ -96,18 +96,15 @@ import {
   updateEntryForm,
 } from "./notebook.js";
 import {
-  copyJevLog,
   copyToolLog,
   deleteProfile,
   deleteRoulette,
   loadModels,
-  openJevLog,
   openModels,
   openProfile,
   openRoulette,
   openSettings,
   openToolLog,
-  renderJevLog,
   renderToolLog,
   rouletteEntryRow,
   saveProfile,
@@ -231,9 +228,9 @@ $("memory-rebuild").addEventListener("click", () => updateSummaries(true));
 els.settingsForm.elements.summaries.addEventListener("change", updateSummariesOnly);
 els.settingsForm.elements.wakeups.addEventListener("change", updateWakeupsOnly);
 $("test-jev").addEventListener("click", testJevNow);
-$("open-jev-log").addEventListener("click", openJevLog);
-$("jev-log-errors").addEventListener("change", renderJevLog);
-$("jev-log-copy").addEventListener("click", copyJevLog);
+$("open-check-log").addEventListener("click", openCheckLog);
+$("friend-check-log").addEventListener("click", openCheckLog);
+$("check-log-copy").addEventListener("click", copyCheckLog);
 els.channelForm.addEventListener("submit", saveChannel);
 $("channel-move-up").addEventListener("click", () => moveChannel(-1));
 $("channel-move-down").addEventListener("click", () => moveChannel(1));

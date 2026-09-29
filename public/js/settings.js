@@ -8,7 +8,7 @@ import { renderAll } from "./channels.js";
 import { $, api, channelPath, els, hideFormError, showFormError, state } from "./core.js";
 import { badge, formatTime } from "./format.js";
 import { checkLive } from "./live.js";
-import { prettyJson, renderToolCall } from "./messages.js";
+import { renderToolCall } from "./messages.js";
 
 // ---------------------------------------------------------------- dialogs
 
@@ -97,6 +97,7 @@ const WAKE_REASONS = {
   "scene-ended": "A scene ended",
   review: "A suggestion to review",
   heartbeat: "Heartbeat",
+  answer: "You answered an ask",
 };
 const WAKE_OUTCOMES = { posted: "wrote to you", quiet: "didn't write", failed: "failed" };
 
@@ -175,85 +176,6 @@ export async function testJevNow() {
     result.textContent = `${data.ok ? "✓" : "✗"} ${data.detail}${data.ok ? "" : raw}`;
   } catch (error) {
     result.textContent = `✗ ${error.message}`;
-  }
-}
-
-/** The Jev log: every call from the last 36 hours. */
-export async function openJevLog() {
-  $("jev-log-copy").textContent = "Copy as text";
-  await renderJevLog();
-  $("jev-log-dialog").showModal();
-}
-
-export async function renderJevLog() {
-  const errorsOnly = $("jev-log-errors").checked;
-  const list = $("jev-log-list");
-  try {
-    const { calls, hours } = await api("GET", `/api/jev/log${errorsOnly ? "?errors=1" : ""}`);
-    state.jevLog = calls;
-    $("jev-log-note").textContent = `Every call to Jev from the last ${hours} hours, newest first, exactly as sent and received.`;
-    if (calls.length === 0) {
-      const empty = document.createElement("li");
-      empty.className = "hint";
-      empty.textContent = errorsOnly ? "No errors." : "No calls yet.";
-      list.replaceChildren(empty);
-      return;
-    }
-    list.replaceChildren(
-      ...calls.map((call) => {
-        const item = document.createElement("li");
-        item.className = "tool-call";
-        item.dataset.status = call.error && !call.answeredBy ? "error" : "ok";
-        const head = document.createElement("div");
-        head.className = "tool-call-head";
-        const name = document.createElement("code");
-        name.className = "tool-call-name";
-        name.textContent = call.purpose;
-        head.append(name, badge(call.answeredBy ?? "no answer"), badge(`${(call.durationMs / 1000).toFixed(1)}s`));
-        const time = document.createElement("time");
-        time.className = "message-time";
-        time.dateTime = call.at;
-        time.textContent = formatTime(call.at);
-        head.append(time);
-        const summary = document.createElement("p");
-        summary.className = "tool-call-summary";
-        summary.textContent = call.summary || call.error || "";
-        const details = document.createElement("details");
-        details.className = "tool-call-raw";
-        const label = document.createElement("summary");
-        label.textContent = "Request and reply";
-        const request = document.createElement("pre");
-        request.textContent = call.request ? JSON.stringify(call.request, null, 2) : "(Jev wasn't asked)";
-        const response = document.createElement("pre");
-        response.textContent = prettyJson(call.response || "");
-        details.append(label, request, response);
-        if (call.fallback) {
-          const fallback = document.createElement("pre");
-          fallback.textContent = `Fallback (${call.fallback.profile}): ${call.fallback.response || call.fallback.error || ""}`;
-          details.append(fallback);
-        }
-        item.append(head, summary, details);
-        return item;
-      }),
-    );
-  } catch (error) {
-    showFormError($("jev-log-dialog"), error.message);
-  }
-}
-
-export async function copyJevLog() {
-  const text = (state.jevLog ?? [])
-    .map((c) =>
-      [`${c.at}  ${c.purpose}  ${c.answeredBy ?? "no answer"}  ${c.summary}`, c.error ? `error: ${c.error}` : "", `request: ${JSON.stringify(c.request)}`, `reply: ${c.response}`]
-        .filter(Boolean)
-        .join("\n"),
-    )
-    .join("\n\n");
-  try {
-    await navigator.clipboard.writeText(text);
-    $("jev-log-copy").textContent = "Copied";
-  } catch {
-    showFormError($("jev-log-dialog"), "Couldn't copy: your browser didn't allow it.");
   }
 }
 
@@ -340,7 +262,7 @@ function renderModels() {
       if (index === 0 && !state.settings.oocAssignment) uses.unshift("OOC");
       return profileRow(
         profile.name,
-        [profile.model.split("/").at(-1), profile.supportsTools ? "tools" : "no tools", ...uses.map((u) => `used by ${u}`)],
+        [profile.model.split("/").at(-1), profile.supportsTools ? "tools" : "no tools", ...(profile.consultant ? ["consultant"] : []), ...uses.map((u) => `used by ${u}`)],
         () => openProfile(profile),
       );
     }),
@@ -397,6 +319,7 @@ export function openProfile(profile) {
   f.topP.value = profile?.topP ?? "";
   f.reasoningEffort.value = profile?.reasoningEffort ?? "";
   f.supportsTools.checked = profile?.supportsTools ?? true;
+  f.consultant.checked = profile?.consultant ?? false;
   f.quirkPrompt.value = profile?.quirkPrompt ?? "";
   f.extraParams.value = profile?.extraParams ?? "";
   form.querySelector(".advanced").open = Boolean(profile?.extraParams);
@@ -418,6 +341,7 @@ export async function saveProfile(event) {
     topP: f.topP.value === "" ? null : Number(f.topP.value),
     reasoningEffort: f.reasoningEffort.value || null,
     supportsTools: f.supportsTools.checked,
+    consultant: f.consultant.checked,
     quirkPrompt: f.quirkPrompt.value,
     extraParams: f.extraParams.value,
   };

@@ -466,6 +466,77 @@ export const MIGRATIONS: Migration[] = [
   );
   CREATE INDEX interventions_by_time ON interventions (at);
   `,
+
+  // ---------------------------------------------------------------- 3
+  // Rebuild stage 3: the instruments. The check log (replacing the Jev
+  // log: check is Jev's only caller now), the unified inbox (asks, and the
+  // proposals that were in their own table), and consultant profiles.
+  `
+  DROP TABLE jev_log;
+
+  -- Every check your friend made (src/check.ts). Text from private places
+  -- (the journal, drafts) is never stored here: only how much was found.
+  CREATE TABLE check_log (
+    id          TEXT PRIMARY KEY,
+    at          TEXT NOT NULL,
+    channel_id  TEXT,
+    question    TEXT NOT NULL,
+    rephrased   TEXT NOT NULL,
+    -- The sources searched, as a JSON list: ["notebook", "channel"...].
+    sources     TEXT NOT NULL,
+    -- 'yes', 'no', 'unsure', or NULL when there was no reading (nothing
+    -- found, or Jev couldn't answer).
+    verdict     TEXT CHECK (verdict IN ('yes', 'no', 'unsure')),
+    -- Each phrasing's p(yes), as a JSON list.
+    yes         TEXT NOT NULL DEFAULT '[]',
+    -- The passages found, as JSON: [{source, where, text}], text NULL for private ones.
+    found       TEXT NOT NULL DEFAULT '[]',
+    -- 'jev', 'fallback', or NULL.
+    answered_by TEXT,
+    error       TEXT,
+    duration_ms INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX check_log_by_time ON check_log (at);
+
+  -- The inbox: what your friend asks of you. Their asks (ask), and
+  -- proposals of things they can't do alone (deleting a channel).
+  -- Notebook suggestions stay in notebook_suggestions, tied to their
+  -- entries, but the app shows them in the same inbox.
+  CREATE TABLE inbox (
+    id           TEXT PRIMARY KEY,
+    -- 'ask' or 'delete_channel'.
+    kind         TEXT NOT NULL CHECK (kind IN ('ask', 'delete_channel')),
+    -- For asks: 'context', 'check', 'model', 'pause', 'clarify', 'prompt', 'other'.
+    ask_kind     TEXT,
+    -- What they asked, or why they propose it.
+    text         TEXT NOT NULL DEFAULT '',
+    -- For a proposal: what it's about, and its name at the time.
+    target_id    TEXT,
+    target_name  TEXT,
+    -- The channel they asked from, if any.
+    channel_id   TEXT,
+    -- 'open' (waiting for you), 'answered', 'dismissed', 'approved', 'denied'.
+    status       TEXT NOT NULL DEFAULT 'open'
+                 CHECK (status IN ('open', 'answered', 'dismissed', 'approved', 'denied')),
+    -- Your answer to an ask.
+    answer       TEXT,
+    created_at   TEXT NOT NULL,
+    resolved_at  TEXT,
+    -- When your friend's prompt first carried the outcome.
+    delivered_at TEXT
+  );
+  CREATE INDEX inbox_by_status ON inbox (status, created_at);
+
+  INSERT INTO inbox (id, kind, text, target_id, target_name, status, created_at, resolved_at, delivered_at)
+    SELECT id, kind, reason, target_id, target_name,
+           CASE status WHEN 'pending' THEN 'open' ELSE status END,
+           created_at, resolved_at, resolved_at
+      FROM proposals;
+  DROP TABLE proposals;
+
+  -- Profiles your friend may consult for a second opinion (consult).
+  ALTER TABLE profiles ADD COLUMN consultant INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 /**

@@ -18,9 +18,10 @@ import { openDatabase } from "./db.ts";
 import { NotFoundError, ValidationError } from "./errors.ts";
 import { Notebook } from "./notebook.ts";
 import { Profiles } from "./profiles.ts";
-import { Comments, Proposals, ToolLog } from "./activity.ts";
+import { Comments, ToolLog } from "./activity.ts";
+import { Inbox } from "./inbox.ts";
+import { CheckLog } from "./check.ts";
 import { Summaries } from "./summaries.ts";
-import { JevLog } from "./jevlog.ts";
 import { WakeLog } from "./wakeups.ts";
 import { Library } from "./library.ts";
 import { Reactions } from "./reactions.ts";
@@ -508,12 +509,12 @@ export class Store {
   readonly toolLog: ToolLog;
   /** Comment threads on messages. */
   readonly comments: Comments;
-  /** Things your friend asked you to approve. */
-  readonly proposals: Proposals;
+  /** What your friend asks of you: asks, and proposals to approve (see `src/inbox.ts`). */
+  readonly inbox: Inbox;
+  /** Every check your friend made (see `src/check.ts`). */
+  readonly checkLog: CheckLog;
   /** Scene summaries, the story so far and the digest (see `src/summaries.ts`). */
   readonly summaries: Summaries;
-  /** Every call to Jev from the last 36 hours (see `src/jevlog.ts`). */
-  readonly jevLog: JevLog;
   /** The reference library: long texts your friend can search. */
   readonly library: Library;
   /** Emoji reactions on messages, and custom emojis. */
@@ -566,9 +567,9 @@ export class Store {
     this.profiles = new Profiles(this.db);
     this.toolLog = new ToolLog(this.db);
     this.comments = new Comments(this.db);
-    this.proposals = new Proposals(this.db);
+    this.inbox = new Inbox(this.db);
+    this.checkLog = new CheckLog(this.db);
     this.summaries = new Summaries(this.db);
-    this.jevLog = new JevLog(this.db);
     this.library = new Library(this.db, (id) => this.hasChannel(id));
     // In memory (tests), custom emoji files go to a throwaway folder.
     this.reactions = new Reactions(this.db, inMemory ? join(tmpdir(), `kinaera-emojis-${crypto.randomUUID()}`) : dataDir, () => this.revision++);
@@ -1087,9 +1088,9 @@ export class Store {
    */
   resolveProposal(id: string, approve: boolean): void {
     this.db.transaction(() => {
-      const proposal = this.proposals.resolve(id, approve ? "approved" : "denied");
+      const proposal = this.inbox.resolveProposal(id, approve ? "approved" : "denied");
       if (approve && proposal.kind === "delete_channel") {
-        this.db.query("DELETE FROM channels WHERE id = $id").run({ id: proposal.targetId });
+        this.db.query("DELETE FROM channels WHERE id = $id").run({ id: proposal.targetId! });
       }
     })();
   }

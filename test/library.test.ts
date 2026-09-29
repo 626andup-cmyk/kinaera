@@ -89,7 +89,7 @@ const addScript = (extra: Record<string, unknown> = {}) =>
   app.store.library.add({ title: "The Lighthouse", description: "The film's screenplay", content: SCRIPT, ...extra });
 
 describe("splitting", () => {
-  test("headings and character cues", () => {
+  test("headings and character cues", async () => {
     expect(headingOf("EXT. CLIFFTOP LIGHTHOUSE - NIGHT")).toBe("EXT. CLIFFTOP LIGHTHOUSE - NIGHT");
     expect(headingOf("INT./EXT. CAR - DAY")).toBe("INT./EXT. CAR - DAY");
     expect(headingOf("## Chapter Two")).toBe("Chapter Two");
@@ -102,7 +102,7 @@ describe("splitting", () => {
     expect(cueName("She said so.")).toBeNull();
   });
 
-  test("a script splits at scene headings once a passage has enough, with speakers", () => {
+  test("a script splits at scene headings once a passage has enough, with speakers", async () => {
     // Pad each scene so it's worth a passage of its own.
     const padded = SCRIPT.replace(/(Rain lashes the tower\.)/, `$1 ${"The wind howls. ".repeat(20)}`).replace(
       /(Ilse winds the great clockwork\.)/,
@@ -118,7 +118,7 @@ describe("splitting", () => {
     expect(passages.map((p) => p.content).join(" ")).toContain("THE END");
   });
 
-  test("long plain text is split near the target size, at sentences", () => {
+  test("long plain text is split near the target size, at sentences", async () => {
     const text = Array.from({ length: 400 }, (_, i) => `Sentence number ${i} is here.`).join(" ");
     const passages = splitPassages(text);
     expect(passages.length).toBeGreaterThan(5);
@@ -129,7 +129,7 @@ describe("splitting", () => {
     expect(passages[0]!.content.length).toBeGreaterThan(PASSAGE_TARGET * 0.8);
   });
 
-  test("text with no punctuation at all still splits", () => {
+  test("text with no punctuation at all still splits", async () => {
     const passages = splitPassages("word ".repeat(3000));
     expect(passages.length).toBeGreaterThan(3);
     expect(passages.every((p) => p.content.length <= 2400)).toBe(true);
@@ -137,7 +137,7 @@ describe("splitting", () => {
 });
 
 describe("searching", () => {
-  test("queries: phrases, stopwords, and nothing left", () => {
+  test("queries: phrases, stopwords, and nothing left", async () => {
     expect(ftsQuery('what happened to "the bell"')).toBe('"the bell" OR "happened"');
     expect(ftsQuery("the of and")).toBeNull();
     expect(ftsQuery("Ilse's lamp")).toBe('"Ilses" OR "lamp"');
@@ -145,7 +145,7 @@ describe("searching", () => {
     expect(ftsQuery('NEAR(lamp* NOT -bell) "(*)"')).toBe('"NEAR" OR "lamp" OR "NOT" OR "bell"');
   });
 
-  test("finds passages, stemmed, with a snippet", () => {
+  test("finds passages, stemmed, with a snippet", async () => {
     const doc = addScript();
     const hits = app.store.library.search("drowning bells");
     expect(hits.length).toBeGreaterThan(0);
@@ -153,7 +153,7 @@ describe("searching", () => {
     expect(hits[0]!.snippet).toContain("«bell»");
   });
 
-  test("speakers rank first", () => {
+  test("speakers rank first", async () => {
     const text = [
       "INT. HALL - DAY",
       "A painting of Ilse hangs on the wall. " + "Dust everywhere. ".repeat(40),
@@ -165,14 +165,14 @@ describe("searching", () => {
     expect(hits[0]!.heading).toBe("INT. KITCHEN - DAY");
   });
 
-  test("only in the documents asked for", () => {
+  test("only in the documents asked for", async () => {
     addScript();
     const other = app.store.library.add({ title: "Other", content: "Nothing about lighthouses here, only bells." });
     expect(app.store.library.search("bell", [other.id]).every((h) => h.docId === other.id)).toBe(true);
     expect(app.store.library.search("bell", [])).toEqual([]);
   });
 
-  test("deleting a document forgets it, from the index too", () => {
+  test("deleting a document forgets it, from the index too", async () => {
     const doc = addScript();
     addScript({ title: "Copy" });
     app.store.library.remove(doc.id);
@@ -183,14 +183,14 @@ describe("searching", () => {
 });
 
 describe("documents", () => {
-  test("adding checks the input", () => {
+  test("adding checks the input", async () => {
     expect(() => app.store.library.add({ title: "", content: "x" })).toThrow();
     expect(() => app.store.library.add({ title: "Empty", content: "   " })).toThrow();
     expect(() => app.store.library.add({ title: "Bad", content: "x", channelIds: ["nope"] })).toThrow();
     expect(() => app.store.library.add({ title: "Binary", content: "a\u0000b" })).toThrow();
   });
 
-  test("channels: limited documents show only there, and always in OOC", () => {
+  test("channels: limited documents show only there, and always in OOC", async () => {
     addScript({ channelIds: [story.id] });
     const other = app.store.createChannel({ name: "other", kind: "rp" });
     expect(app.store.library.forChannel(story)).toHaveLength(1);
@@ -198,13 +198,13 @@ describe("documents", () => {
     expect(app.store.library.forChannel(other)).toHaveLength(0);
   });
 
-  test("deleting a channel takes it off documents limited to it", () => {
+  test("deleting a channel takes it off documents limited to it", async () => {
     const doc = addScript({ channelIds: [story.id] });
     app.store.deleteChannel(story.id);
     expect(app.store.library.get(doc.id).channelIds).toEqual([]);
   });
 
-  test("reading passages", () => {
+  test("reading passages", async () => {
     const doc = addScript();
     const [first] = app.store.library.passages(doc.id, 1);
     expect(first!.content).toContain("Rain lashes");
@@ -216,40 +216,40 @@ describe("tools", () => {
   const ctx = () => ({ store: app.store, channel: story, mode: "post" as const });
   const names = () => toolSpecs(ctx()).map((t) => t.function.name);
 
-  test("offered only when the library has something for the channel", () => {
+  test("offered only when the library has something for the channel", async () => {
     expect(names()).not.toContain("search_library");
     addScript();
     expect(names()).toContain("search_library");
     expect(names()).toContain("read_library");
   });
 
-  test("search, then read", () => {
+  test("search, then read", async () => {
     addScript();
-    const search = runTool(ctx(), "search_library", { query: "drowned bell" });
+    const search = await runTool(ctx(), "search_library", { query: "drowned bell" });
     expect(search.ok).toBe(true);
     const first = (search.result as any).results[0];
     expect(first).toMatchObject({ document: "The Lighthouse" });
     expect(search.summary).toBe('searched "The Lighthouse" for "drowned bell"');
 
-    const read = runTool(ctx(), "read_library", { document: "lighthouse", passage: first.passage, count: "2" });
+    const read = await runTool(ctx(), "read_library", { document: "lighthouse", passage: first.passage, count: "2" });
     expect(read.ok).toBe(true);
     expect(JSON.stringify(read.result)).toContain("bell drowned");
   });
 
-  test("mistakes are explained", () => {
+  test("mistakes are explained", async () => {
     addScript();
-    const unknown = runTool(ctx(), "read_library", { document: "Hamlet", passage: 1 });
+    const unknown = await runTool(ctx(), "read_library", { document: "Hamlet", passage: 1 });
     expect(unknown.ok).toBe(false);
     expect(JSON.stringify(unknown.result)).toContain("The Lighthouse");
-    const outOfRange = runTool(ctx(), "read_library", { document: "The Lighthouse", passage: 50 });
+    const outOfRange = await runTool(ctx(), "read_library", { document: "The Lighthouse", passage: 50 });
     expect(JSON.stringify(outOfRange.result)).toContain("passages 1 to");
-    const nothing = runTool(ctx(), "search_library", { query: "spaceship" });
+    const nothing = await runTool(ctx(), "search_library", { query: "spaceship" });
     expect((nothing.result as any).results).toEqual([]);
   });
 });
 
 describe("the prompt", () => {
-  test("lists the library with tools, never its text", () => {
+  test("lists the library with tools, never its text", async () => {
     addScript();
     const withTools = JSON.stringify(promptForChannel(app.store, story.id, { profile: app.store.profiles.list()[0] }));
     expect(withTools).toContain("Reference library");

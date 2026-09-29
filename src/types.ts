@@ -439,6 +439,8 @@ export interface Profile {
   reasoningEffort: ReasoningEffort | null;
   /** Whether the model can call tools (stage 6). Turns on it are given tools only if so. */
   supportsTools: boolean;
+  /** Your friend may `consult` this profile for a second opinion (a "consultant"). */
+  consultant: boolean;
   /** Layer 4 of the prompt stack: notes that tame this model's habits. */
   quirkPrompt: string;
   /** More request fields, as a JSON object in text (e.g. `{"top_k": 40}`), or "". */
@@ -503,18 +505,6 @@ export interface CommentThread {
   quote: string;
   resolved: boolean;
   comments: Comment[];
-}
-
-/** Something your friend asked you to approve (other than notebook suggestions). */
-export interface Proposal {
-  id: string;
-  kind: "delete_channel";
-  targetId: string;
-  targetName: string;
-  reason: string;
-  status: "pending" | "approved" | "denied";
-  createdAt: string;
-  resolvedAt: string | null;
 }
 
 // ------------------------------------------------------------ stage 7

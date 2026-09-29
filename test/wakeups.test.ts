@@ -276,13 +276,11 @@ describe("the API", () => {
     expect(data.wakeups[0]).toMatchObject({ reason: "away", outcome: "quiet" });
   });
 
-  test("POST /api/jev/test, and the Jev log", async () => {
+  test("POST /api/jev/test", async () => {
     fake.replies.push({ content: JSON.stringify({ answers: { pet: { choice: "yes", probabilities: { yes: 0.97, no: 0.03 } } } }) });
     const { data } = await call("POST", "/api/jev/test", {});
     expect(data.ok).toBe(true);
-    const log = await call("GET", "/api/jev/log");
-    expect(log.data.calls).toHaveLength(1);
-    expect(log.data.calls[0]).toMatchObject({ purpose: "Test Jev", answeredBy: "jev" });
+    expect(data.report).toMatchObject({ answeredBy: "jev" });
   });
 
   test("GET /api/state has a revision that moves with messages, and each channel's latest", async () => {

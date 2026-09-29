@@ -42,7 +42,7 @@ async function call(method: string, path: string, body?: unknown) {
 }
 
 describe("categories", () => {
-  test("made at the bottom, renamed, folded, reordered", () => {
+  test("made at the bottom, renamed, folded, reordered", async () => {
     const a = app.store.createCategory({ name: " Fantasy " });
     const b = app.store.createCategory({ name: "Sci-fi" });
     expect(app.store.listCategories().map((c) => [c.name, c.position])).toEqual([
@@ -56,7 +56,7 @@ describe("categories", () => {
     expect(() => app.store.createCategory({ name: "" })).toThrow();
   });
 
-  test("channels go in and out; deleting a category keeps its channels", () => {
+  test("channels go in and out; deleting a category keeps its channels", async () => {
     const fantasy = app.store.createCategory({ name: "Fantasy" });
     const dragons = app.store.createChannel({ name: "dragons", kind: "rp", categoryId: fantasy.id });
     expect(dragons.categoryId).toBe(fantasy.id);
@@ -68,7 +68,7 @@ describe("categories", () => {
     expect(() => app.store.updateChannel(story.id, { categoryId: "nope" })).toThrow();
   });
 
-  test("a drag: the new order and a category, all at once", () => {
+  test("a drag: the new order and a category, all at once", async () => {
     const fantasy = app.store.createCategory({ name: "Fantasy" });
     const channels = app.store.reorderChannels([ooc.id, story.id], { [story.id]: fantasy.id });
     expect(channels.map((c) => [c.name, c.categoryId])).toEqual([
@@ -84,27 +84,27 @@ describe("categories", () => {
 describe("your friend", () => {
   const ctx = () => ({ store: app.store, channel: ooc, mode: "post" as const });
 
-  test("makes a channel in a category (making the category if needed)", () => {
-    const result = runTool(ctx(), "create_channel", { name: "heist", kind: "roleplay", category: "Crime" });
+  test("makes a channel in a category (making the category if needed)", async () => {
+    const result = await runTool(ctx(), "create_channel", { name: "heist", kind: "roleplay", category: "Crime" });
     expect(result.ok).toBe(true);
     const crime = app.store.listCategories().find((c) => c.name === "Crime")!;
     expect(app.store.listChannels().find((c) => c.name === "heist")!.categoryId).toBe(crime.id);
     // The same name (any case) is the same category.
-    runTool(ctx(), "create_channel", { name: "noir", kind: "roleplay", category: "crime" });
+    await runTool(ctx(), "create_channel", { name: "noir", kind: "roleplay", category: "crime" });
     expect(app.store.listCategories()).toHaveLength(1);
   });
 
-  test("moves a channel into a category, out of it, and along", () => {
-    const into = runTool(ctx(), "move_channel", { channel: "#story", category: "Fantasy" });
+  test("moves a channel into a category, out of it, and along", async () => {
+    const into = await runTool(ctx(), "move_channel", { channel: "#story", category: "Fantasy" });
     expect(into.summary).toBe("moved #story into Fantasy");
-    const out = runTool(ctx(), "move_channel", { channel: "#story", category: "none", position: 2 });
+    const out = await runTool(ctx(), "move_channel", { channel: "#story", category: "none", position: 2 });
     expect(out.summary).toBe("moved #story out of its category and to place 2");
     expect(app.store.getChannel(story.id).categoryId).toBeNull();
-    expect(runTool(ctx(), "move_channel", { channel: "#story" }).ok).toBe(false);
+    expect((await runTool(ctx(), "move_channel", { channel: "#story" })).ok).toBe(false);
   });
 
-  test("sees categories in the OOC channel list", () => {
-    runTool(ctx(), "move_channel", { channel: "#story", category: "Fantasy" });
+  test("sees categories in the OOC channel list", async () => {
+    await runTool(ctx(), "move_channel", { channel: "#story", category: "Fantasy" });
     expect(promptForChannel(app.store, ooc.id)[0]!.content).toContain("- #story (in Fantasy): roleplay");
   });
 });

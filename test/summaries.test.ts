@@ -102,7 +102,7 @@ describe("splitScenes and windowStart", () => {
       seq: i + 1,
     })) as SeqMessage[];
 
-  test("a channel splits into scenes at its breaks; OOC is one conversation", () => {
+  test("a channel splits into scenes at its breaks; OOC is one conversation", async () => {
     const messages = seq([{}, {}, { kind: "scene_break", id: "b1" }, {}, { kind: "scene_break", id: "b2" }]);
     const scenes = splitScenes(messages, "rp");
     expect(scenes.map((s) => [s.start?.id ?? null, s.end?.id ?? null, s.posts.length])).toEqual([
@@ -113,24 +113,24 @@ describe("splitScenes and windowStart", () => {
     expect(splitScenes(messages, "ooc")).toHaveLength(1);
   });
 
-  test("off: the newest historyLimit messages, as before", () => {
+  test("off: the newest historyLimit messages, as before", async () => {
     const messages = seq(Array.from({ length: 10 }, () => ({})));
     expect(windowStart(messages, "rp", { historyLimit: 4, summaryEvery: 2, enabled: false, current: null })).toBe(6);
   });
 
-  test("a long scene with nothing summarized yet is sent whole, up to historyLimit + 2 × summaryEvery", () => {
+  test("a long scene with nothing summarized yet is sent whole, up to historyLimit + 2 × summaryEvery", async () => {
     const messages = seq(Array.from({ length: 7 }, () => ({})));
     expect(windowStart(messages, "rp", { historyLimit: 4, summaryEvery: 2, enabled: true, current: null })).toBe(0);
     const longer = seq(Array.from({ length: 12 }, () => ({})));
     expect(windowStart(longer, "rp", { historyLimit: 4, summaryEvery: 2, enabled: true, current: null })).toBe(4);
   });
 
-  test("a short current scene: the newest historyLimit, reaching into the scene before", () => {
+  test("a short current scene: the newest historyLimit, reaching into the scene before", async () => {
     const messages = seq([{}, {}, {}, {}, { kind: "scene_break", id: "b" }, {}]);
     expect(windowStart(messages, "rp", { historyLimit: 4, summaryEvery: 2, enabled: true, current: null })).toBe(2);
   });
 
-  test("with 'earlier in this scene': everything after what it covers", () => {
+  test("with 'earlier in this scene': everything after what it covers", async () => {
     const messages = seq([{}, { kind: "scene_break", id: "b" }, {}, {}, {}, {}, {}]);
     const current = { sceneId: "b", throughSeq: 5, stale: false } as any;
     expect(windowStart(messages, "rp", { historyLimit: 1, summaryEvery: 10, enabled: true, current })).toBe(5);
@@ -138,7 +138,7 @@ describe("splitScenes and windowStart", () => {
     expect(windowStart(messages, "rp", { historyLimit: 1, summaryEvery: 10, enabled: true, current: { ...current, sceneId: "" } })).toBe(1);
   });
 
-  test("transcripts say who's speaking, and chunks keep lines whole", () => {
+  test("transcripts say who's speaking, and chunks keep lines whole", async () => {
     const [post, sceneBreak] = seq([{ content: " Hi " }, { kind: "scene_break", content: "Night" }]);
     expect(transcript([post!, sceneBreak!], "rp", "Arlo")).toEqual(["The user (narration): Hi", '--- Scene break: "Night" ---']);
     expect(transcript([{ ...post!, author: "friend", characters: ["Ilse"] }], "rp", "Arlo")).toEqual(["Ilse: Hi"]);
@@ -396,13 +396,13 @@ describe("summaries in the prompt", () => {
   });
 
   test("read_channel_summary gives your friend a channel's summaries", async () => {
-    const empty = runTool({ store: app.store, channel: ooc, mode: "post" }, "read_channel_summary", { channel: "#story" });
+    const empty = await runTool({ store: app.store, channel: ooc, mode: "post" }, "read_channel_summary", { channel: "#story" });
     expect(empty.result).toMatchObject({ summary: null });
     posts(story, 2);
     app.store.addSceneBreak(story.id, "user", "");
     fake.replies.push({ content: "Scene." }, { content: "The story." }, { content: "Digest." });
     await app.summarizer.catchUp(story.id);
-    const outcome = runTool({ store: app.store, channel: ooc, mode: "post" }, "read_channel_summary", { channel: "#story" });
+    const outcome = await runTool({ store: app.store, channel: ooc, mode: "post" }, "read_channel_summary", { channel: "#story" });
     expect(outcome).toMatchObject({ ok: true, summary: "read the summary of #story" });
     expect((outcome.result as { summary: string }).summary).toContain("In short: Digest.");
   });
@@ -440,7 +440,7 @@ describe("summaries API", () => {
     expect(rewritten.data.summaries.scenes[sceneBreak.id].content).toBe("Fresh scene.");
   });
 
-  test("settings: summaries on or off, how often, and who writes them", () => {
+  test("settings: summaries on or off, how often, and who writes them", async () => {
     expect(validateSettings({ summaries: false, summaryEvery: 10, summaryAssignment: "" })).toEqual({
       summaries: false,
       summaryEvery: 10,

@@ -34,10 +34,10 @@ export async function loadNotebook() {
  * redraw whatever's open. Called after any change to the notebook.
  */
 export async function refreshNotebook() {
-  const [notebook, { channels, proposals }] = await Promise.all([api("GET", "/api/notebook"), api("GET", "/api/state")]);
+  const [notebook, { channels, inbox }] = await Promise.all([api("GET", "/api/notebook"), api("GET", "/api/state")]);
   state.notebook = notebook;
   state.channels = channels;
-  state.proposals = proposals;
+  state.inbox = inbox ?? [];
   renderAll();
   if ($("notebook-dialog").open) renderNotebook();
   if (els.channelDialog.open) renderCastEditor();

@@ -1,6 +1,6 @@
 /**
- * What happens around messages (stage 6): the tool log, comment threads,
- * and proposals waiting for your approval.
+ * What happens around messages (stage 6): the tool log and comment
+ * threads.
  *
  *   - **ToolLog** keeps every tool call your friend makes, with the
  *     arguments exactly as the model wrote them and what was sent back.
@@ -10,15 +10,14 @@
  *     in threads you both can reply to and resolve. They're out of
  *     character: your friend reads them as OOC notes, never as something
  *     the characters know.
- *   - **Proposals** are actions your friend can't take alone, shown to you
- *     as approve/deny cards. Notebook changes go through suggestions
- *     instead (src/notebook.ts); this is for the rest, which for now is
- *     deleting a channel.
+ *
+ * Proposals (actions your friend can't take alone) are in the inbox now:
+ * see src/inbox.ts.
  */
 
 import type { Database } from "bun:sqlite";
 import { NotFoundError, PermissionError, ValidationError } from "./errors.ts";
-import type { Author, Comment, CommentThread, Proposal, ToolCallRecord } from "./types.ts";
+import type { Author, Comment, CommentThread, ToolCallRecord } from "./types.ts";
 
 // ---------------------------------------------------------------- tool log
 
@@ -222,83 +221,4 @@ function checkNote(note: string): string {
   if (typeof note !== "string" || note.trim() === "") throw new ValidationError("A comment can't be empty.");
   if (note.length > MAX_NOTE) throw new ValidationError("That comment is too long.");
   return note.trim();
-}
-
-// --------------------------------------------------------------- proposals
-
-interface ProposalRow {
-  id: string;
-  kind: Proposal["kind"];
-  target_id: string;
-  target_name: string;
-  reason: string;
-  status: Proposal["status"];
-  created_at: string;
-  resolved_at: string | null;
-}
-
-function toProposal(row: ProposalRow): Proposal {
-  return {
-    id: row.id,
-    kind: row.kind,
-    targetId: row.target_id,
-    targetName: row.target_name,
-    reason: row.reason,
-    status: row.status,
-    createdAt: row.created_at,
-    resolvedAt: row.resolved_at,
-  };
-}
-
-export class Proposals {
-  constructor(private readonly db: Database) {}
-
-  /**
-   * Record a proposal. Proposing the same thing twice while the first is
-   * still waiting returns the first.
-   */
-  propose(kind: Proposal["kind"], targetId: string, targetName: string, reason: string): Proposal {
-    const existing = this.db
-      .query("SELECT * FROM proposals WHERE kind = $kind AND target_id = $targetId AND status = 'pending'")
-      .get({ kind, targetId }) as ProposalRow | null;
-    if (existing) return toProposal(existing);
-    const id = crypto.randomUUID();
-    this.db
-      .query(
-        `INSERT INTO proposals (id, kind, target_id, target_name, reason, created_at)
-         VALUES ($id, $kind, $targetId, $targetName, $reason, $now)`,
-      )
-      .run({ id, kind, targetId, targetName, reason: reason.slice(0, 1000), now: new Date().toISOString() });
-    return this.get(id);
-  }
-
-  get(id: string): Proposal {
-    const row = this.db.query("SELECT * FROM proposals WHERE id = $id").get({ id }) as ProposalRow | null;
-    if (!row) throw new NotFoundError("proposal");
-    return toProposal(row);
-  }
-
-  /** Waiting proposals, oldest first. */
-  pending(): Proposal[] {
-    const rows = this.db.query("SELECT * FROM proposals WHERE status = 'pending' ORDER BY created_at").all() as ProposalRow[];
-    return rows.map(toProposal);
-  }
-
-  /** The newest decided proposals, newest first (for your friend to know how they went). */
-  recentlyResolved(limit = 5): Proposal[] {
-    const rows = this.db
-      .query("SELECT * FROM proposals WHERE status != 'pending' ORDER BY resolved_at DESC LIMIT $limit")
-      .all({ limit }) as ProposalRow[];
-    return rows.map(toProposal);
-  }
-
-  /** Mark a waiting proposal approved or denied. (Carrying it out is the caller's job.) */
-  resolve(id: string, status: "approved" | "denied"): Proposal {
-    const proposal = this.get(id);
-    if (proposal.status !== "pending") throw new ValidationError("That proposal has already been dealt with.");
-    this.db
-      .query("UPDATE proposals SET status = $status, resolved_at = $now WHERE id = $id")
-      .run({ id, status, now: new Date().toISOString() });
-    return this.get(id);
-  }
 }

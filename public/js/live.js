@@ -19,7 +19,7 @@ export async function loadState() {
   state.channels = data.channels;
   state.profiles = data.profiles;
   state.roulettes = data.roulettes;
-  state.proposals = data.proposals;
+  state.inbox = data.inbox ?? [];
   state.busy = new Set(data.busyChannels);
   state.revision = data.revision;
   state.activity = data.activity ?? {};
@@ -100,7 +100,7 @@ export async function checkLive() {
   state.activity = data.activity ?? {};
   state.channels = data.channels;
   state.categories = data.categories ?? state.categories;
-  state.proposals = data.proposals;
+  state.inbox = data.inbox ?? [];
   state.settings = data.settings;
   for (const channelId of data.busyChannels) state.busy.add(channelId);
   const open = state.activity[state.channelId];

@@ -20,7 +20,14 @@
  * "Do nothing" is always an option, and usually the right one.
  */
 
+import { CHECK_SOURCES, DEFAULT_SOURCES, runCheck, type CheckSource } from "./check.ts";
 import { NotFoundError, PermissionError, ValidationError } from "./errors.ts";
+import { profileRequest } from "./friend.ts";
+import { ASK_KIND_NAMES, ASK_KINDS, type AskKind } from "./inbox.ts";
+import type { Decider } from "./jev.ts";
+import { ApiError, createChatCompletion, type ApiOptions } from "./nanogpt.ts";
+import { plainLinks } from "./prompt.ts";
+import { wording } from "./wording.ts";
 import type { LibraryDoc } from "./library.ts";
 import type { EntryView } from "./notebook.ts";
 import type { ToolSpec } from "./nanogpt.ts";
@@ -34,6 +41,12 @@ export interface ToolContext {
   channel: Channel;
   /** `"post"` for a normal turn; `"comment"` when replying to a comment thread. */
   mode: "post" | "comment";
+  /** Jev, for `check`. Without it, a check returns the passages and no reading. */
+  decider?: Decider;
+  /** The API, for `consult`. Without it, `consult` isn't offered. */
+  api?: ApiOptions;
+  /** Counts for this turn, for its limits (one `consult` per turn). */
+  turn?: { consults: number };
 }
 
 /** What running a tool produced. */
@@ -41,11 +54,19 @@ export interface ToolOutcome {
   ok: boolean;
   /** Sent back to the model. */
   result: unknown;
+  /**
+   * What the tool log keeps instead of `result`, when they differ: text
+   * from private places (the journal, drafts) is never logged.
+   */
+  logResult?: unknown;
   /** For people. For errors, the error. */
   summary: string;
   /** `do_nothing`: end the turn without writing. */
   stop?: boolean;
 }
+
+/** What a tool's `run` returns. */
+type ToolRun = Omit<ToolOutcome, "ok"> & { ok?: boolean };
 
 /** A mistake in how the model used a tool, explained to it. */
 class ToolError extends Error {}
@@ -57,7 +78,7 @@ interface ToolDefinition {
   parameters: Record<string, unknown>;
   /** Whether the tool is offered in this context (default: always). */
   available?: (ctx: ToolContext) => boolean;
-  run: (ctx: ToolContext, args: Record<string, unknown>) => Omit<ToolOutcome, "ok"> & { ok?: boolean };
+  run: (ctx: ToolContext, args: Record<string, unknown>) => ToolRun | Promise<ToolRun>;
 }
 
 // ------------------------------------------------------------------ helpers
@@ -571,7 +592,7 @@ const TOOLS: ToolDefinition[] = [
     parameters: object({ channel: str("The channel, like #old-story."), reason: str("Why, in a sentence.") }, ["channel"]),
     run: (ctx, args) => {
       const channel = findChannel(ctx, need(args, "channel"));
-      ctx.store.proposals.propose("delete_channel", channel.id, channel.name, maybe(args, "reason") ?? "");
+      ctx.store.inbox.propose("delete_channel", channel.id, channel.name, maybe(args, "reason") ?? "");
       return { result: { proposed: true, note: "The user will approve or deny it." }, summary: `proposed deleting ${hash(channel)}` };
     },
   },
@@ -737,6 +758,14 @@ const TOOLS: ToolDefinition[] = [
   },
 ];
 
+/** check, ask and consult: the instruments (defined below). */
+const INSTRUMENTS: ToolDefinition[] = [];
+
+/** Every tool: the instruments first, then the rest (do_nothing last). */
+function allTools(): ToolDefinition[] {
+  return [...INSTRUMENTS, ...TOOLS];
+}
+
 function threadIn(store: Store, channel: Channel, id: string) {
   try {
     return store.comments.findInChannel(channel.id, id);
@@ -747,29 +776,165 @@ function threadIn(store: Store, channel: Channel, id: string) {
 
 // -------------------------------------------------------------------- API
 
+// ------------------------------------------------------ the instruments
+
+/** Round a probability for the model: 0.94. */
+const round2 = (p: number) => Math.round(p * 100) / 100;
+
+/** "the notebook, this channel and the summaries" */
+function sourceNames(sources: CheckSource[]): string {
+  const names = { notebook: "the notebook", channel: "this channel", summaries: "the summaries", library: "the library" };
+  const list = sources.map((s) => names[s]);
+  return list.length > 1 ? `${list.slice(0, -1).join(", ")} and ${list.at(-1)}` : (list[0] ?? "");
+}
+
+INSTRUMENTS.push(
+  {
+    name: "check",
+    description:
+      "Sonar for your world: check whether something is true or present before you rely on it, for example before stating a fact about the story, before editing the notebook, or whenever you're not sure. Give the question in two different phrasings. You get back the passages found, each with where it's from, and Jev's reading of them (yes, no or unsure, with how sure). The passages are the evidence; the reading is a quick second opinion. \"Nothing found\" is a useful answer too. It's cheap, so use it freely.",
+    parameters: object(
+      {
+        question: str('What you want to know, as a yes-or-no question: "Has Ilse\'s brother been named anywhere?"'),
+        rephrased: str('The same question, worded differently: "Is there a name given for Ilse\'s brother?"'),
+        sources: {
+          type: "array",
+          items: { type: "string", enum: [...CHECK_SOURCES] },
+          description: `Where to look. Default: ${DEFAULT_SOURCES.join(", ")}. "channel" is this channel's messages; "library" is the reference library.`,
+        },
+      },
+      ["question", "rephrased"],
+    ),
+    run: async (ctx, args) => {
+      const question = need(args, "question");
+      const rephrased = maybe(args, "rephrased") ?? question;
+      let sources: CheckSource[] = DEFAULT_SOURCES;
+      if (args.sources !== undefined && args.sources !== null) {
+        const list = Array.isArray(args.sources) ? args.sources : [args.sources];
+        const unknown = list.filter((s) => !CHECK_SOURCES.includes(s as CheckSource));
+        if (unknown.length) throw new ToolError(`Unknown source ${JSON.stringify(unknown[0])}. Sources: ${CHECK_SOURCES.join(", ")}.`);
+        if (list.length) sources = [...new Set(list as CheckSource[])];
+      }
+      const words = wording("instruments");
+      const check = await runCheck(ctx.store, ctx.channel, ctx.decider ?? null, { question, rephrased, sources });
+      const reading = check.verdict ? { answer: check.verdict, how_sure: check.yes.map((p) => `${Math.round(p * 100)}% yes`) } : null;
+      const note =
+        check.found.length === 0
+          ? (words["check-nothing"] ?? "Nothing found in {sources}.").replace("{sources}", sourceNames(check.sources))
+          : (check.error ?? words["check-reading"] ?? "");
+      const found = (hidePrivate: boolean) =>
+        check.found.map((p) => ({ from: p.where, text: hidePrivate && p.private ? "(private: not logged)" : p.text }));
+      const summary = `checked "${question.slice(0, 80)}": ${check.found.length === 0 ? "nothing found" : (check.verdict ?? "no reading")}`;
+      return {
+        result: { reading, found: found(false), note },
+        logResult: { reading, found: found(true), note },
+        summary,
+      };
+    },
+  },
+  {
+    name: "ask",
+    description: `Ask the user something, as a person, whenever you need to. It goes to their inbox, and their answer reaches you on a later turn. Kinds: ${ASK_KINDS.map((k) => ASK_KIND_NAMES[k]).join("; ")}.`,
+    parameters: object(
+      {
+        kind: { type: "string", enum: [...ASK_KINDS], description: "What it's about." },
+        text: str("What you're asking, in your own words."),
+      },
+      ["kind", "text"],
+    ),
+    run: ({ store, channel }, args) => {
+      const kind = String(args.kind ?? "other").trim().toLowerCase() as AskKind;
+      if (!ASK_KINDS.includes(kind)) throw new ToolError(`"kind" must be one of: ${ASK_KINDS.join(", ")}.`);
+      const text = need(args, "text");
+      store.inbox.ask(kind, text, channel.id);
+      return { result: { asked: true, note: wording("instruments")["ask-sent"] ?? "It's in the user's inbox." }, summary: `asked the user (${kind}): "${snip(text)}"` };
+    },
+  },
+  {
+    name: "consult",
+    description:
+      "Ask a more capable model for its honest read: on a draft, a continuity tangle, or a moment where you suspect you're stuck in a pattern. Attach what it needs to see. Only you see its reply: the user can see that you consulted and what you asked, but not the answer. What you do with the advice is up to you. Once per turn.",
+    parameters: object(
+      {
+        question: str("What you'd like its read on."),
+        draft: str("Optional: a draft of yours for it to read."),
+        messages: { type: "array", items: { type: "string" }, description: "Optional: messages from this channel to show it, each by a few words quoted from it." },
+        entries: { type: "array", items: { type: "string" }, description: "Optional: notebook entries to show it, by name." },
+        consultant: str("Optional: which consultant, by name, if there are several."),
+      },
+      ["question"],
+    ),
+    available: (ctx) => Boolean(ctx.api) && ctx.store.profiles.list().some((p) => p.consultant),
+    run: async (ctx, args) => {
+      const turn = ctx.turn ?? { consults: 0 };
+      if (turn.consults >= 1) throw new ToolError("You've already consulted once this turn. You can consult again on a later turn.");
+      const consultants = ctx.store.profiles.list().filter((p) => p.consultant);
+      const wanted = maybe(args, "consultant");
+      const profile = wanted ? consultants.find((p) => norm(p.name) === norm(wanted)) : consultants[0];
+      if (!profile) throw new ToolError(`There's no consultant called "${wanted}". Consultants: ${consultants.map((p) => p.name).join(", ")}.`);
+      const question = need(args, "question");
+      const parts = [question];
+      const draft = maybe(args, "draft");
+      if (draft) parts.push(`Their draft:\n\n${draft}`);
+      const quotes = Array.isArray(args.messages) ? args.messages.map(String) : [];
+      if (quotes.length) {
+        const shown = quotes.map((q) => findMessage(ctx, q, false));
+        const lines = shown.map((m) => `${m.author === "friend" ? "They wrote" : "The person they write with wrote"}${m.characters.length ? ` (as ${m.characters.join(" & ")})` : ""}:\n${m.content}`);
+        parts.push(`From their conversation (#${ctx.channel.name}):\n\n${lines.join("\n\n")}`);
+      }
+      const names = Array.isArray(args.entries) ? args.entries.map(String) : [];
+      if (names.length) {
+        const entries = names.map((n) => findEntry(ctx.store, n));
+        const blocks = entries.map((e) =>
+          [`### ${e.name} (${e.kind})`, ...e.fields.filter((f) => f.value.trim()).map((f) => `${f.label}: ${plainLinks(f.value.trim())}`), e.systemPrompt.trim() ? `Notes: ${plainLinks(e.systemPrompt.trim())}` : ""]
+            .filter(Boolean)
+            .join("\n"),
+        );
+        parts.push(`From their notes:\n\n${blocks.join("\n\n")}`);
+      }
+      turn.consults += 1;
+      if (ctx.turn) ctx.turn.consults = turn.consults;
+      const framing = wording("instruments")["consult-framing"] ?? "A writer friend is asking for your honest read.";
+      const response = await createChatCompletion(ctx.api!, {
+        ...profileRequest(profile),
+        messages: [
+          { role: "system", content: framing },
+          { role: "user", content: parts.join("\n\n---\n\n") },
+        ],
+      });
+      return {
+        result: { consultant: profile.name, reply: response.content },
+        // The tool log (which the user can open) keeps that they asked, not the answer.
+        logResult: { consultant: profile.name, reply: "(only your friend sees the consultant's reply)" },
+        summary: `consulted ${profile.name}: "${snip(question)}"`,
+      };
+    },
+  },
+);
+
 /** The tools offered in a context, in the API's format. */
 export function toolSpecs(ctx: ToolContext): ToolSpec[] {
-  return TOOLS.filter((t) => t.available?.(ctx) ?? true).map((t) => ({
+  return allTools().filter((t) => t.available?.(ctx) ?? true).map((t) => ({
     type: "function",
     function: { name: t.name, description: t.description, parameters: t.parameters },
   }));
 }
 
 /** Every tool name, for tests and the docs. */
-export const TOOL_NAMES = TOOLS.map((t) => t.name);
+export const TOOL_NAMES = allTools().map((t) => t.name);
 
 /**
  * Run one tool call. Never throws for a mistake the model made: that comes
  * back as a failed outcome whose result explains the problem, so the model
  * can try again.
  */
-export function runTool(ctx: ToolContext, name: string, args: Record<string, unknown>): ToolOutcome {
-  const tool = TOOLS.find((t) => t.name === name && (t.available?.(ctx) ?? true));
+export async function runTool(ctx: ToolContext, name: string, args: Record<string, unknown>): Promise<ToolOutcome> {
+  const tool = allTools().find((t) => t.name === name && (t.available?.(ctx) ?? true));
   if (!tool) {
     return failure(`There's no tool called "${name}". Tools: ${toolSpecs(ctx).map((t) => t.function.name).join(", ")}.`);
   }
   try {
-    const outcome = tool.run(ctx, args);
+    const outcome = await tool.run(ctx, args);
     return { ok: true, ...outcome };
   } catch (error) {
     if (
@@ -780,6 +945,8 @@ export function runTool(ctx: ToolContext, name: string, args: Record<string, unk
     ) {
       return failure(error.message);
     }
+    // A consultant's model failing: explained, so your friend can carry on.
+    if (error instanceof ApiError) return failure(`That didn't go through: ${error.message}`);
     console.error(`[tools] ${name} failed`, error);
     return failure("Something went wrong running that tool.");
   }

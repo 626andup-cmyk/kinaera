@@ -48,7 +48,7 @@ async function call(method: string, path: string, body?: unknown) {
 }
 
 describe("editing keeps every version", () => {
-  test("the first edit saves the original too; later edits add to it", () => {
+  test("the first edit saves the original too; later edits add to it", async () => {
     const m = say("friend", "*Ilse sets the lamp down.*");
     app.store.editMessage(m.id, "*Ilse sets the lamp down, slowly.*", "user");
     app.store.editMessage(m.id, "*Ilse sets the lamp down.* Well?", "friend");
@@ -61,21 +61,21 @@ describe("editing keeps every version", () => {
     ]);
   });
 
-  test("an unedited message has no versions, and an edit to the same text changes nothing", () => {
+  test("an unedited message has no versions, and an edit to the same text changes nothing", async () => {
     const m = say("user", "hi");
     app.store.editMessage(m.id, "hi");
     expect(app.store.history(m.id).revisions).toEqual([]);
     expect(app.store.getMessage(m.id).editedAt).toBeUndefined();
   });
 
-  test("your friend can edit only their own messages", () => {
+  test("your friend can edit only their own messages", async () => {
     const yours = say("user", "I knock.");
     expect(() => app.store.editMessage(yours.id, "I kick the door.", "friend")).toThrow(/only edit your own/);
   });
 });
 
 describe("deleting leaves a tombstone", () => {
-  test("gone from the chat and the prompt, kept in history", () => {
+  test("gone from the chat and the prompt, kept in history", async () => {
     const m = say("friend", "A line I regret.");
     say("user", "Hm.");
     app.store.deleteMessage(m.id, "user");
@@ -87,7 +87,7 @@ describe("deleting leaves a tombstone", () => {
     expect(() => app.store.deleteMessage(m.id)).toThrow();
   });
 
-  test("clearing a channel keeps every message as a tombstone", () => {
+  test("clearing a channel keeps every message as a tombstone", async () => {
     say("user", "one");
     say("friend", "two");
     app.store.clearMessages(story.id);
@@ -138,7 +138,7 @@ describe("the intervention log", () => {
     expect(data.interventions.map((e: { summary: string }) => e.summary)).toEqual(["The user changed your identity (who you are)."]);
   });
 
-  test("clearing a channel with your friend's messages in it", () => {
+  test("clearing a channel with your friend's messages in it", async () => {
     say("friend", "hello");
     app.store.clearMessages(story.id);
     expect(app.store.interventions.recent()[0]!.summary).toBe("The user cleared every message in #story.");
@@ -152,27 +152,27 @@ describe("your friend's tools", () => {
   });
   const run = (name: string, args: Record<string, unknown> = {}) => runTool(ctx, name, args);
 
-  test("edit_my_message: their latest, or one they quote; never yours", () => {
+  test("edit_my_message: their latest, or one they quote; never yours", async () => {
     say("friend", "The lamp is lit.");
     say("user", "The lamp is warm.");
     say("friend", "Tea?");
-    expect(run("edit_my_message", { new_text: "Tea? Or something stronger?" })).toMatchObject({ ok: true });
-    expect(run("edit_my_message", { quote: "lamp is lit", new_text: "The lamp is lit, barely." })).toMatchObject({ ok: true });
+    expect(await run("edit_my_message", { new_text: "Tea? Or something stronger?" })).toMatchObject({ ok: true });
+    expect(await run("edit_my_message", { quote: "lamp is lit", new_text: "The lamp is lit, barely." })).toMatchObject({ ok: true });
     expect(app.store.getMessages(story.id).map((m) => m.content)).toEqual(["The lamp is lit, barely.", "The lamp is warm.", "Tea? Or something stronger?"]);
     // Only their own messages are searched.
-    expect(run("edit_my_message", { quote: "lamp is warm", new_text: "x" })).toMatchObject({ ok: false });
+    expect(await run("edit_my_message", { quote: "lamp is warm", new_text: "x" })).toMatchObject({ ok: false });
   });
 
-  test("delete_my_message", () => {
+  test("delete_my_message", async () => {
     say("friend", "Oops, wrong channel.");
-    expect(run("delete_my_message", {})).toMatchObject({ ok: true });
+    expect(await run("delete_my_message", {})).toMatchObject({ ok: true });
     expect(app.store.getMessages(story.id)).toEqual([]);
   });
 
-  test("read_message_history shows versions and who wrote them", () => {
+  test("read_message_history shows versions and who wrote them", async () => {
     const m = say("friend", "Original.");
     app.store.editMessage(m.id, "Edited by the user.");
-    const outcome = run("read_message_history", { quote: "Edited by" });
+    const outcome = await run("read_message_history", { quote: "Edited by" });
     expect(outcome.ok).toBe(true);
     expect(outcome.result).toMatchObject({
       written_by: "you",
@@ -184,11 +184,11 @@ describe("your friend's tools", () => {
     });
   });
 
-  test("read_interventions", () => {
-    expect(run("read_interventions").result).toMatchObject({ note: "Nothing yet." });
+  test("read_interventions", async () => {
+    expect((await run("read_interventions")).result).toMatchObject({ note: "Nothing yet." });
     const m = say("friend", "hi");
     app.store.deleteMessage(m.id);
-    expect(run("read_interventions").result).toEqual([{ when: "just now", what: 'The user deleted your message in #story: "hi"' }]);
+    expect((await run("read_interventions")).result).toEqual([{ when: "just now", what: 'The user deleted your message in #story: "hi"' }]);
   });
 
   test("they're offered in a turn, and an edit through a real turn works", async () => {
@@ -202,7 +202,7 @@ describe("your friend's tools", () => {
 });
 
 describe("the prompt", () => {
-  test("has one honest note about edits, and no markers on edited messages", () => {
+  test("has one honest note about edits, and no markers on edited messages", async () => {
     const m = say("friend", "Before.");
     app.store.editMessage(m.id, "After.");
     const system = promptForChannel(app.store, story.id, { profile: app.store.profiles.list()[0] })[0]!.content;
@@ -214,7 +214,7 @@ describe("the prompt", () => {
     expect(history).not.toMatch(/edited/i);
   });
 
-  test("without tools, the note doesn't mention them", () => {
+  test("without tools, the note doesn't mention them", async () => {
     const system = promptForChannel(app.store, story.id)[0]!.content;
     expect(system).toContain("The user sometimes edits or regenerates messages");
     expect(system).not.toContain("read_message_history");
@@ -239,7 +239,7 @@ describe("the API", () => {
 });
 
 describe("wording files", () => {
-  test("sections by name; text before the first is ignored", () => {
+  test("sections by name; text before the first is ignored", async () => {
     expect(parseSections("# Notes\nfor people\n\n## one\n\nFirst.\n\n## two\nSecond\nline.\n")).toEqual({ one: "First.", two: "Second\nline." });
   });
 });

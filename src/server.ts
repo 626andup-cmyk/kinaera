@@ -19,7 +19,7 @@
  *   POST   /api/presence                       The app is (or isn't) on screen: {visible}
  *   POST   /api/heartbeat                      Beat now: a free moment for your friend, if the rules allow
  *   POST   /api/jev/test                      Ask Jev one tiny question, to see if it's reachable and understood
- *   GET    /api/jev/log                        Every Jev call from the last 36 hours, exactly as sent and received
+ *   GET    /api/checks                         The check log: every check your friend made
  *
  *   POST   /api/messages/:id/reactions         Add your emoji reaction to a message, or take it back
  *   GET    /api/emojis                         Custom emojis
@@ -33,7 +33,7 @@
  *   PATCH  /api/library/:id                    Change a document's title, description or channels
  *   DELETE /api/library/:id                    Delete a document
  *   GET    /api/library/:id/passages/:seq      Read passages in full (&count=n in a row, up to 10)
- *   GET    /api/state                          Settings, channels, profiles, roulettes, proposals waiting,
+ *   GET    /api/state                          Settings, channels, profiles, roulettes, the open inbox,
  *                                              where the friend is writing, and the app version
  *   PUT    /api/settings                       Change settings (any subset of fields)
  *   GET    /api/models                         List models available on nanoGPT
@@ -76,8 +76,8 @@
  *   POST   /api/comments/:id/resolve           Resolve or reopen a thread
  *   DELETE /api/comments/:id                   Delete one of your comments
  *
- *   GET    /api/proposals                      Your friend's proposals waiting for you
- *   POST   /api/proposals/:id/:action          approve or deny one
+ *   GET    /api/inbox                          What your friend asks of you: asks and proposals (open, and recent)
+ *   POST   /api/inbox/:id/:action              answer (with {answer}) or dismiss an ask; approve or deny a proposal
  *
  *   GET    /api/profiles                       Connection profiles and roulettes
  *   POST   /api/profiles                       Make a profile
@@ -123,7 +123,6 @@ import { BusyError, Friend, pickProfile, promptForChannel, testToolCalling, type
 import { parseSceneBreak, postToMessages } from "./posts.ts";
 import { Summarizer } from "./summarizer.ts";
 import { Decider, testJev } from "./jev.ts";
-import { JEV_LOG_HOURS } from "./jevlog.ts";
 import { FRESH_SCENE_MINUTES, Wakeups } from "./wakeups.ts";
 import { Heartbeat } from "./heartbeat.ts";
 import { describeSeeds, randomFriend, rollSeeds } from "./rng.ts";
@@ -278,8 +277,9 @@ export function createApp(config: Config): App {
       }
       return { decisionModel: settings.decisionModel, fallback };
     },
-    (call) => store.jevLog.add(call, new Date()),
   );
+  // Jev's only job: the check tool (src/check.ts).
+  friend.decider = decider;
   const wakeups = new Wakeups(store, friend, Boolean(config.apiKey));
   const heartbeat = new Heartbeat(store, wakeups);
   const presence = new Presence();
@@ -417,7 +417,7 @@ export function createApp(config: Config): App {
           categories: store.listCategories(),
           profiles: store.profiles.list(),
           roulettes: store.profiles.listRoulettes(),
-          proposals: store.proposals.pending(),
+          inbox: store.inbox.open(),
           busyChannels: friend.busyChannels(),
           appVersion: version,
           emojis: store.reactions.listEmojis(),
@@ -536,12 +536,8 @@ export function createApp(config: Config): App {
     },
     {
       method: "GET",
-      pattern: "/api/jev/log",
-      handler: (request) =>
-        json({
-          calls: store.jevLog.recent(new Date(), { errorsOnly: new URL(request.url).searchParams.get("errors") === "1" }),
-          hours: JEV_LOG_HOURS,
-        }),
+      pattern: "/api/checks",
+      handler: () => json({ checks: store.checkLog.recent(200) }),
     },
     {
       method: "PUT",
@@ -995,22 +991,35 @@ export function createApp(config: Config): App {
       },
     },
 
-    // --------------------------------------------------------- proposals
+    // ------------------------------------------------------------- inbox
     {
       method: "GET",
-      pattern: "/api/proposals",
-      handler: () => json({ proposals: store.proposals.pending() }),
+      pattern: "/api/inbox",
+      handler: () => json({ inbox: store.inbox.open(), recent: store.inbox.recent(30) }),
     },
     {
       method: "POST",
-      pattern: "/api/proposals/:id/:action",
-      handler: (_request, { id, action }) => {
-        if (action !== "approve" && action !== "deny") throw new HttpError(404, "No such API route.");
-        const proposal = store.proposals.get(id!);
-        // Deleting a channel waits for a turn in progress there.
-        if (action === "approve" && proposal.kind === "delete_channel") ensureIdle(proposal.targetId);
-        store.resolveProposal(id!, action === "approve");
-        return json({ proposals: store.proposals.pending(), channels: channelViews() });
+      pattern: "/api/inbox/:id/:action",
+      handler: async (request, { id, action }) => {
+        const item = store.inbox.get(id!);
+        if (action === "answer") {
+          const body = await readObject(request);
+          if (typeof body.answer !== "string") throw new HttpError(400, '"answer" must be text.');
+          store.inbox.answer(id!, body.answer);
+          store.interventions.add({ kind: "ask", summary: `The user answered your ask: "${item.text.slice(0, 80)}"` });
+          // Your answer can give them a turn of their own, if the rules allow.
+          if (autoWake) void wakeups.event("answer");
+        } else if (action === "dismiss") {
+          store.inbox.dismiss(id!);
+          store.interventions.add({ kind: "ask", summary: `The user set aside your ask without answering: "${item.text.slice(0, 80)}"` });
+        } else if (action === "approve" || action === "deny") {
+          // Deleting a channel waits for a turn in progress there.
+          if (action === "approve" && item.kind === "delete_channel" && item.targetId) ensureIdle(item.targetId);
+          store.resolveProposal(id!, action === "approve");
+        } else {
+          throw new HttpError(404, "No such API route.");
+        }
+        return json({ inbox: store.inbox.open(), channels: channelViews() });
       },
     },
 

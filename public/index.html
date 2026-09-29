@@ -437,7 +437,7 @@
         <select id="setting-decision-fallback" name="decisionFallback"></select>
         <div class="memory-buttons">
           <button type="button" class="button" id="test-jev">Test Jev</button>
-          <button type="button" class="button" id="open-jev-log">Jev log</button>
+          <button type="button" class="button" id="open-check-log">Check log</button>
         </div>
         <p class="hint" id="test-jev-result" role="status"></p>
 
@@ -451,21 +451,22 @@
       </form>
     </dialog>
 
-    <!-- The open channel's settings. -->
-    <!-- The Jev log: every call to Jev from the last 36 hours, exactly as sent and received. -->
-    <dialog id="jev-log-dialog" class="dialog surface">
+    <!-- The check log: every check your friend made (js/history.js). -->
+    <dialog id="check-log-dialog" class="dialog surface tool-log">
       <form method="dialog">
-        <h2 class="dialog-title">Jev log</h2>
-        <p class="hint" id="jev-log-note"></p>
-        <label class="check-inline"><input type="checkbox" id="jev-log-errors" /> Errors only</label>
-        <ul id="jev-log-list" class="tool-log-list"></ul>
+        <h2 class="dialog-title">Check log</h2>
+        <p class="hint" id="check-log-note"></p>
+        <ul id="check-log-list" class="tool-log-list"></ul>
+        <p class="form-error" role="alert" hidden></p>
         <div class="dialog-buttons">
-          <button type="button" class="button" id="jev-log-copy">Copy as text</button>
+          <button type="button" class="button" id="check-log-copy">Copy as text</button>
           <span class="spacer"></span>
           <button type="button" class="button button-primary" data-close>Close</button>
         </div>
       </form>
     </dialog>
+
+    <!-- The open channel's settings. -->
 
     <dialog id="channel-dialog" class="dialog surface">
       <form id="channel-form" method="dialog">
@@ -670,6 +671,7 @@
 
         <div class="memory-buttons">
           <button type="button" class="button" id="open-interventions">What you've changed</button>
+          <button type="button" class="button" id="friend-check-log">Check log</button>
         </div>
 
         <label for="friend-name-input">Name</label>
@@ -1083,6 +1085,17 @@
           >
         </label>
 
+        <label class="check-option">
+          <input type="checkbox" name="consultant" />
+          <span
+            ><strong>Consultant</strong><br /><span class="hint"
+              >Your friend can ask this model for an honest second opinion (the consult tool): on a draft, a
+              continuity tangle, or a pattern they suspect they're stuck in. Only your friend sees its reply: the tool
+              log shows that they asked, and what, but not the answer. Best for a strong model.</span
+            ></span
+          >
+        </label>
+
         <label for="profile-quirk">Model notes</label>
         <p class="hint">
           Tame this model's habits, e.g. "Don't restate the scene." Not for personality: that's the friend prompts.
@@ -1152,7 +1165,7 @@
     <!-- The inbox: your friend's proposals and suggestions, and yours waiting on them. -->
     <dialog id="inbox-dialog" class="dialog surface inbox">
       <h2 class="dialog-title">Inbox</h2>
-      <p class="hint">What your friend asked you to approve, and your suggestions waiting for them.</p>
+      <p class="hint">What your friend asks of you (their questions, and things to approve), and your suggestions waiting for them.</p>
       <div id="inbox-list" class="inbox-list"></div>
       <p class="form-error" role="alert" hidden></p>
       <div class="dialog-buttons">

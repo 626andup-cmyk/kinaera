@@ -1892,6 +1892,11 @@ button:disabled {
   margin-top: 8px;
 }
 
+/* Your answer to one of your friend's asks. */
+.inbox-answer {
+  margin-top: 8px;
+}
+
 /* A suggestion's before and after, per changed part. */
 .suggestion-diff {
   margin: 6px 0 0;

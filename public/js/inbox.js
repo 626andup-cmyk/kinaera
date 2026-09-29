@@ -1,25 +1,41 @@
 /**
- * The inbox: what's waiting on someone. Your friend's proposals and
- * suggestions for you to approve, and your suggestions waiting for them.
+ * The inbox: what's waiting on someone. What your friend asks of you
+ * (their asks, and proposals to approve), suggestions for either of you,
+ * and your suggestions waiting for them.
  */
 
 import { openChannel, renderAll } from "./channels.js";
 import { $, api, hideFormError, showFormError, state } from "./core.js";
-import { badge } from "./format.js";
+import { formatTime } from "./format.js";
 import { findEntry, refreshNotebook } from "./notebook.js";
 
 // ------------------------------------------------------------------ inbox
 
 /*
- * The inbox gathers what's waiting on someone: your friend's proposals
- * (deleting a channel) and suggestions (notebook changes) for you to
- * approve, and your suggestions waiting for your friend, who reviews them
- * with their tools on their next turn.
+ * The inbox gathers what's waiting on someone:
+ *
+ *   - your friend's asks (src/inbox.ts), which you answer or set aside;
+ *     your answer reaches them on their next turn;
+ *   - their proposals (deleting a channel) and suggestions (notebook
+ *     changes), which you approve or reject;
+ *   - your suggestions waiting for your friend, who reviews them with their
+ *     tools on their next turn.
  */
 
-/** Suggestions waiting for you, and proposals: what the badge counts. */
+/** What each kind of ask is about. */
+const ASK_TITLES = {
+  context: "Context: something they need to know",
+  check: "Check: can you look at something",
+  model: "Model: a different profile",
+  pause: "Pause: a break from a storyline",
+  clarify: "Clarify: what did you mean",
+  prompt: "Prompt: how their context is built",
+  other: "Something else",
+};
+
+/** Everything waiting for you: what the badge counts. */
 function inboxCount() {
-  return state.proposals.length + state.notebook.suggestions.filter((s) => s.reviewer === "user").length;
+  return state.inbox.length + state.notebook.suggestions.filter((s) => s.reviewer === "user").length;
 }
 
 export function renderInboxBadge() {
@@ -43,12 +59,42 @@ export function renderInbox() {
   const yours = state.notebook.suggestions.filter((s) => s.author === "user" && s.reviewer !== "user");
   const sections = [];
 
-  if (state.proposals.length) {
+  const asks = state.inbox.filter((item) => item.kind === "ask");
+  const proposals = state.inbox.filter((item) => item.kind !== "ask");
+  if (asks.length) {
     sections.push(
       inboxSection(
-        `${friend} asks`,
-        state.proposals.map((proposal) => {
-          const card = inboxCard(`Delete #${proposal.targetName}?`, proposal.reason ? `“${proposal.reason}”` : "");
+        `${friend} asks you`,
+        asks.map((ask) => {
+          const where = state.channels.find((c) => c.id === ask.channelId);
+          const card = inboxCard(ASK_TITLES[ask.askKind] ?? "A question", `“${ask.text}”`);
+          const meta = document.createElement("p");
+          meta.className = "hint";
+          meta.textContent = `Asked ${formatTime(ask.createdAt)}${where ? ` in #${where.name}` : ""}. Your answer reaches ${friend} on their next turn.`;
+          const answer = document.createElement("textarea");
+          answer.className = "inbox-answer";
+          answer.rows = 3;
+          answer.placeholder = "Your answer";
+          answer.setAttribute("aria-label", "Your answer");
+          card.append(
+            meta,
+            answer,
+            cardButtons([
+              ["Answer", () => answerAsk(ask.id, answer.value), "button-primary"],
+              ["Set aside", () => dismissAsk(ask.id)],
+            ]),
+          );
+          return card;
+        }),
+      ),
+    );
+  }
+  if (proposals.length) {
+    sections.push(
+      inboxSection(
+        `${friend} proposes`,
+        proposals.map((proposal) => {
+          const card = inboxCard(`Delete #${proposal.targetName}?`, proposal.text ? `“${proposal.text}”` : "");
           card.append(
             cardButtons([
               ["Delete it", () => resolveProposal(proposal.id, "approve"), "button-danger"],
@@ -191,12 +237,39 @@ async function reviewSuggestion(id, action) {
   }
 }
 
+/** Do something to an inbox item (answer, dismiss, approve, deny), and show the result. */
+async function inboxAction(id, action, body = {}) {
+  const { inbox, channels } = await api("POST", `/api/inbox/${encodeURIComponent(id)}/${action}`, body);
+  state.inbox = inbox;
+  state.channels = channels;
+}
+
+async function answerAsk(id, answer) {
+  try {
+    await inboxAction(id, "answer", { answer });
+    renderAll();
+    renderInbox();
+  } catch (error) {
+    showFormError($("inbox-dialog"), error.message);
+  }
+}
+
+async function dismissAsk(id) {
+  if (!confirm(`Set this aside without answering? ${state.settings.friendName} is told you did.`)) return;
+  try {
+    await inboxAction(id, "dismiss");
+    renderAll();
+    renderInbox();
+  } catch (error) {
+    showFormError($("inbox-dialog"), error.message);
+  }
+}
+
 async function resolveProposal(id, action) {
   if (action === "approve" && !confirm("Delete this channel and every message in it? This can't be undone.")) return;
   try {
-    const { proposals, channels } = await api("POST", `/api/proposals/${encodeURIComponent(id)}/${action}`, {});
-    state.proposals = proposals;
-    state.channels = channels;
+    await inboxAction(id, action);
+    const channels = state.channels;
     if (!channels.some((c) => c.id === state.channelId)) await openChannel(channels[0]?.id ?? null);
     renderAll();
     renderInbox();

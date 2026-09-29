@@ -2,7 +2,7 @@
 
 Kinaera is a Discord-style space for writing stories and hanging out with one or more AI friends: writers with their own style who play characters alongside you, using models from [nanoGPT](https://nano-gpt.com). It's designed as if the friends could be people: they get real tools to check things, ask for help and fix their own mistakes, and parts of their life that are theirs.
 
-**Status: being rebuilt from Aettica.** [KINAERA_REBUILD.md](KINAERA_REBUILD.md) is the plan, and each finished step has a doc in `docs/` ([1a](docs/rebuild-1a.md), [1b](docs/rebuild-1b.md), [1c](docs/rebuild-1c.md), [2](docs/rebuild-2.md)). Everything below works today.
+**Status: being rebuilt from Aettica.** [KINAERA_REBUILD.md](KINAERA_REBUILD.md) is the plan, and each finished step has a doc in `docs/` ([1a](docs/rebuild-1a.md), [1b](docs/rebuild-1b.md), [1c](docs/rebuild-1c.md), [2](docs/rebuild-2.md), [3](docs/rebuild-3.md)). Everything below works today.
 
 ## What it can do
 
@@ -27,7 +27,8 @@ Kinaera is a Discord-style space for writing stories and hanging out with one or
 - **Attach notes** to a message with the paperclip, or write `[[Name]]` in it: your friend gets those entries in full.
 - **Reactions**: react to messages with emojis, and your friend reacts too. Upload **custom emojis** and use them as `:name:`. See [reactions](docs/reactions.md).
 - **Comments**: select text in a message to comment on it; your friend replies in the thread (on your own message, they can tell a note to yourself and leave it).
-- **Inbox** (the tray at the top of the channel list): your friend's proposals and suggested changes, to approve or reject.
+- **Your friend's instruments**: `check` (searching the notebook, the chat, the summaries or the library, with Jev's reading of what it finds), `ask` (a question for you, in your inbox) and `consult` (a second opinion from a profile you mark as a consultant). See [the instruments](docs/rebuild-3.md).
+- **Inbox** (the tray at the top of the channel list): what your friend asks of you, their proposals, and suggested changes, to answer, approve or reject. The **check log** (friend menu) lists every check they made.
 - **Texting in OOC**: your friend texts in short bursts that arrive one at a time with "typing…", and waits for you to pause before answering. **🎲 Surprise me** invents a new friend (in the friend menu, or when you make one). See [texting](docs/texting.md).
 - **Heartbeat** (off by default): now and then, even with the app closed, your friend gets a free moment. They can text you (with a phone notification), act with their tools, or do nothing. See [the heartbeat](docs/heartbeat.md).
 - **Your friend reaches out**: when you come back after a while, when a scene ends, or when a suggestion is waiting for them, your friend gets a turn of their own in OOC, and decides whether to write. Plain rules (chattiness, quiet hours, a cooldown, never twice without you writing) keep it from being too much (Settings → Your friend reaching out, with a log of every wake-up). A dot marks channels with messages you haven't seen.
@@ -113,9 +114,9 @@ src/
   summarizer.ts  Writes summaries in the background as channels change
   wakeups.ts   The hard rules, and your friend's turns of their own
   heartbeat.ts The heartbeat: a timer that gives your friend free moments
-  check.ts     `check`, your friend's sonar (built in stage 3)
+  check.ts     `check`, your friend's sonar, and the check log
+  inbox.ts     The inbox: your friend's asks, and proposals
   jev.ts       Asking Jev, the small decision model, yes-or-no questions
-  jevlog.ts    The Jev log: every call from the last 36 hours
   hub.ts       Friends and servers: one app per friend, each with their own memory
   notify.ts    Phone notifications (Termux)
   texting.ts   Texting in OOC: splitting replies into texts

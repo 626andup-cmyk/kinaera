@@ -52,14 +52,14 @@ const say = (content: string, author: "user" | "friend" = "user", channel = ooc)
 const reload = (message: Message) => app.store.getMessage(message.id);
 
 describe("emojis", () => {
-  test("what counts as one emoji", () => {
+  test("what counts as one emoji", async () => {
     for (const ok of ["👍", "❤️", "😂", "👩🏽‍💻", "🇯🇵", "1️⃣", "🏳️‍🌈"]) expect(isEmoji(ok)).toBe(true);
     for (const bad of ["", "a", "👍👍", "ok 👍", ":)", "<b>"]) expect(isEmoji(bad)).toBe(false);
   });
 });
 
 describe("reactions", () => {
-  test("add, once each, in order; take back; both of you", () => {
+  test("add, once each, in order; take back; both of you", async () => {
     const m = say("guess what, I got a puppy");
     app.store.reactions.add(m.id, "user", "❤️");
     app.store.reactions.add(m.id, "user", "❤️");
@@ -74,7 +74,7 @@ describe("reactions", () => {
     expect(reload(m).reactions).toHaveLength(2);
   });
 
-  test("checked: not text, and not too many", () => {
+  test("checked: not text, and not too many", async () => {
     const m = say("hi");
     expect(() => app.store.reactions.add(m.id, "user", "lol")).toThrow();
     expect(() => app.store.reactions.add(m.id, "user", ":nope:")).toThrow();
@@ -83,7 +83,7 @@ describe("reactions", () => {
     expect(() => app.store.reactions.add(m.id, "user", many[MAX_REACTIONS_EACH])).toThrow();
   });
 
-  test("they change the revision (so the app notices), and go with their message", () => {
+  test("they change the revision (so the app notices), and go with their message", async () => {
     const m = say("hi");
     const before = app.store.revision;
     app.store.reactions.add(m.id, "friend", "👋");
@@ -98,7 +98,7 @@ describe("reactions", () => {
 });
 
 describe("custom emojis", () => {
-  test("add, use, replace, delete (taking their reactions)", () => {
+  test("add, use, replace, delete (taking their reactions)", async () => {
     const blob = app.store.reactions.addEmoji(":Blob_Wave:", Buffer.from(PNG, "base64"));
     expect(blob.name).toBe("blob_wave");
     expect(blob.file).toMatch(/^blob_wave-[a-z0-9]+\.png$/);
@@ -112,7 +112,7 @@ describe("custom emojis", () => {
     expect(reload(m).reactions).toEqual([]);
   });
 
-  test("only small images with simple names", () => {
+  test("only small images with simple names", async () => {
     const png = Buffer.from(PNG, "base64");
     expect(() => app.store.reactions.addEmoji("a", png)).toThrow();
     expect(() => app.store.reactions.addEmoji("has space", png)).toThrow();
@@ -125,28 +125,28 @@ describe("custom emojis", () => {
 describe("your friend", () => {
   const ctx = (channel = ooc) => ({ store: app.store, channel, mode: "post" as const });
 
-  test("reacts to your latest message, or the one quoted", () => {
+  test("reacts to your latest message, or the one quoted", async () => {
     const first = say("I finished the lighthouse chapter");
     say("It's alright", "friend");
     const latest = say("also I adopted a cat");
-    const r1 = runTool(ctx(), "react_to_message", { emoji: "😻" });
+    const r1 = await runTool(ctx(), "react_to_message", { emoji: "😻" });
     expect(r1).toMatchObject({ ok: true, summary: 'reacted 😻 to "also I adopted a cat"' });
     expect(reload(latest).reactions).toEqual([{ emoji: "😻", author: "friend" }]);
-    runTool(ctx(), "react_to_message", { emoji: "🎉", quote: "lighthouse chapter" });
+    await runTool(ctx(), "react_to_message", { emoji: "🎉", quote: "lighthouse chapter" });
     expect(reload(first).reactions).toEqual([{ emoji: "🎉", author: "friend" }]);
   });
 
-  test("mistakes are explained, with the custom emojis there are", () => {
+  test("mistakes are explained, with the custom emojis there are", async () => {
     app.store.reactions.addEmoji("blob_wave", Buffer.from(PNG, "base64"));
     say("hi");
-    const bad = runTool(ctx(), "react_to_message", { emoji: "wave" });
+    const bad = await runTool(ctx(), "react_to_message", { emoji: "wave" });
     expect(bad.ok).toBe(false);
     expect(JSON.stringify(bad.result)).toContain(":blob_wave:");
-    expect(runTool(ctx(), "react_to_message", { emoji: ":blob_wave:" }).ok).toBe(true);
-    expect(runTool(ctx(story), "react_to_message", { emoji: "👍" }).ok).toBe(false); // nothing of yours there
+    expect((await runTool(ctx(), "react_to_message", { emoji: ":blob_wave:" })).ok).toBe(true);
+    expect((await runTool(ctx(story), "react_to_message", { emoji: "👍" })).ok).toBe(false); // nothing of yours there
   });
 
-  test("sees reactions in the prompt, and its custom emojis with tools", () => {
+  test("sees reactions in the prompt, and its custom emojis with tools", async () => {
     const mine = say("*Arlo grins* want to try a heist story next?", "friend");
     const yours = say("YES");
     app.store.reactions.add(mine.id, "user", "❤️");
@@ -163,7 +163,7 @@ describe("your friend", () => {
     expect(without).not.toContain(":blob_wave:");
   });
 
-  test("nothing to say, nothing in the prompt", () => {
+  test("nothing to say, nothing in the prompt", async () => {
     expect(describeReactions([], [])).toBeNull();
   });
 });

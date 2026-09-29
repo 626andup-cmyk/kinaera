@@ -60,8 +60,8 @@ export const state = {
   openSummaries: new Set(),
   /** The scene break whose summary is being edited, if any. */
   editingSummary: null,
-  /** Your friend's proposals waiting for you (e.g. deleting a channel). */
-  proposals: [],
+  /** What your friend asks of you and is waiting on: asks, and proposals like deleting a channel. */
+  inbox: [],
   /** The full tool log of the open channel, while the tool log is open. */
   toolLog: [],
   /** Turn ids whose action details are expanded under their messages. */

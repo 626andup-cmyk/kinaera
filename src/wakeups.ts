@@ -8,6 +8,7 @@
  *     `awayHours`; otherwise just "opened")
  *   - **a scene ends** (one you ended, once it's been summarized)
  *   - **a suggestion of yours is waiting for their review**
+ *   - **you answered something they asked** (src/inbox.ts)
  *   - **the heartbeat**, a timer: see src/heartbeat.ts
  *
  * A wake-up is a turn in your OOC channel (the one you talked in last),
@@ -29,7 +30,8 @@
  * - **Quiet hours**: never, except reviews (which are silent work).
  * - **A cooldown** between wake-ups (`wakeCooldownMinutes`, reviews 10).
  * - **No double texts**: once your friend has reached out, they wait for
- *   you to write before reaching out again (reviews excepted).
+ *   you to write before reaching out again. Reviews, and replying to your
+ *   answer to their ask, are the exceptions.
  * - **Never mid-conversation**: not right after you were talking, and not
  *   while they're writing in that channel. Not without an API key either.
  *
@@ -45,7 +47,7 @@ import { splitScenes } from "./summaries.ts";
 import type { Channel, Message } from "./types.ts";
 
 /** What can wake your friend up from outside. */
-export type WakeEvent = "opened" | "scene-ended" | "review" | "heartbeat";
+export type WakeEvent = "opened" | "scene-ended" | "review" | "heartbeat" | "answer";
 
 /** What came of a wake-up. */
 export type WakeOutcome = "posted" | "quiet" | "failed";
@@ -149,9 +151,9 @@ export function inQuietHours(now: Date, start: number, end: number): boolean {
 /** Which events count at each chattiness. */
 const COUNTS: Record<string, WakeReason[]> = {
   off: [],
-  quiet: ["away", "review", "heartbeat"],
-  normal: ["away", "review", "heartbeat", "scene-ended"],
-  chatty: ["away", "review", "heartbeat", "scene-ended", "opened"],
+  quiet: ["away", "review", "heartbeat", "answer"],
+  normal: ["away", "review", "heartbeat", "answer", "scene-ended"],
+  chatty: ["away", "review", "heartbeat", "answer", "scene-ended", "opened"],
 };
 
 // ----------------------------------------------------------- wake-ups
@@ -222,7 +224,7 @@ export class Wakeups {
     const cooldown = reason === "review" ? REVIEW_COOLDOWN_MINUTES : settings.wakeCooldownMinutes;
     const lastTurn = store.wakeLog.lastTurnAt(reason === "review" ? ["review"] : undefined);
     if (lastTurn && now.getTime() - lastTurn.getTime() < cooldown * 60_000) return skip("It's too soon after the last wake-up.");
-    if (reason !== "review") {
+    if (reason !== "review" && reason !== "answer") {
       const lastPosted = store.wakeLog.lastPostedAt();
       if (lastPosted && (!yourLast || new Date(yourLast.createdAt) < lastPosted)) {
         return skip("Your friend already reached out, and is waiting for you to write.");
@@ -311,7 +313,9 @@ export function wakeContext(
   for (const s of store.notebook.waitingFor("user").filter((s) => s.author === "friend")) {
     waiting.push(`Your suggested change to ${nameOf(s.entryId)} is waiting for the user.`);
   }
-  for (const p of store.proposals.pending()) waiting.push(`Your proposal to delete #${p.targetName} is waiting for the user.`);
+  for (const item of store.inbox.open()) {
+    waiting.push(item.kind === "ask" ? `Your ask ("${item.text.slice(0, 120)}") is waiting for the user.` : `Your proposal to delete #${item.targetName} is waiting for the user.`);
+  }
 
   const context: WakeContext = { reason, sinceUser: sinceMs === null ? null : humanDuration(sinceMs), waiting };
   if (reason === "scene-ended" && detail.channelId) {

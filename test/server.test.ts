@@ -921,16 +921,16 @@ describe("comments", () => {
 
 describe("approvals", () => {
   test("approving your friend's proposal to delete a channel deletes it", async () => {
-    const proposal = app.store.proposals.propose("delete_channel", ooc.id, "ooc", "Unused.");
-    expect((await call("GET", "/api/state")).data.proposals).toHaveLength(1);
-    const { data } = await call("POST", `/api/proposals/${proposal.id}/approve`, {});
-    expect(data.proposals).toEqual([]);
+    const proposal = app.store.inbox.propose("delete_channel", ooc.id, "ooc", "Unused.");
+    expect((await call("GET", "/api/state")).data.inbox).toHaveLength(1);
+    const { data } = await call("POST", `/api/inbox/${proposal.id}/approve`, {});
+    expect(data.inbox).toEqual([]);
     expect(data.channels.map((c: Channel) => c.name)).toEqual(["story"]);
   });
 
   test("denying one keeps the channel, and your friend hears how it went", async () => {
-    const proposal = app.store.proposals.propose("delete_channel", ooc.id, "ooc", "");
-    await call("POST", `/api/proposals/${proposal.id}/deny`, {});
+    const proposal = app.store.inbox.propose("delete_channel", ooc.id, "ooc", "");
+    await call("POST", `/api/inbox/${proposal.id}/deny`, {});
     expect(app.store.listChannels()).toHaveLength(2);
     await call("POST", `/api/channels/${story.id}/turn`, {});
     expect(fake.requests[0]!.messages[0]!.content).toContain("The user denied your proposal to delete #ooc.");
