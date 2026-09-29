@@ -19,7 +19,7 @@ Each friend is a complete Kinaera of their own (`src/hub.ts`). They have their o
 - notebook, including their secrets, suggestions and pins;
 - channels, categories, messages, comments, reactions and tool log;
 - summaries;
-- wake-ups, heartbeat and Jev log;
+- wake-ups, heartbeat, inbox, and the check and intervention logs;
 - reference library and custom emojis;
 - settings and prompts.
 
