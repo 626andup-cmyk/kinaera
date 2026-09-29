@@ -160,7 +160,9 @@ A theme can offer sliders in Appearance, each setting a CSS variable its CSS use
 - Give each variable its default in your `:root` block too, so the theme also looks right before the app applies the sliders.
 - The app sets the app theme's variables on `<html>`, and a channel theme's on `.channel-view`, where they win over the theme's own values. Up to 12 sliders per theme.
 
-**Rainy Window** is a worked example of sliders, layers (below) and parallax: its layers drift with the message list's scrolling through a scroll-driven animation (`scroll-timeline` on `.messages`, `timeline-scope` on `body`). The Liquid Glass themes and Rainy Window have sliders for their refraction (see Liquid glass below).
+**Rainy Window** is a worked example of sliders and layers (below). The Liquid Glass themes and Rainy Window have sliders for their refraction (see Liquid glass below).
+
+**Backgrounds stay still.** When you scroll, only the messages move: no built-in theme ties its background or layers to scrolling (no parallax), and yours shouldn't either.
 
 ## Layers
 
@@ -230,12 +232,11 @@ Turn it on in your `:root`, then mark which elements are lensed glass:
 .message { box-shadow: var(--glass-rim), 0 14px 34px -12px rgb(0 0 0 / 0.3); }
 .lensed { box-shadow: var(--glass-rim) !important; }
 ```
-- **Don't move your theme layers with `transform`** (not even a static one): Chrome doesn't give a lens the full picture of a transformed layer, and cuts part of it off behind the rims. For parallax, animate `background-position` instead. Both Liquid Glass themes do. Rainy Window, whose layers also need masks and several backgrounds to move together, animates registered custom properties (`@property --near { syntax: "<length>"; ... }`) and uses them in each `background-position` and `mask-position`:
+- **Don't move your theme layers with `transform`** (not even a static one): Chrome doesn't give a lens the full picture of a transformed layer, and cuts part of it off behind the rims. To animate a layer (like Rainy Window's falling rain), animate its `background-position` instead, or a registered custom property used in it (`@property --fall { syntax: "<length>"; ... }`):
 
 ```css
-@keyframes drift {
-  from { background-position-y: calc(50% + 5vh); }
-  to { background-position-y: calc(50% - 5vh); }
+@keyframes fall {
+  to { --fall: 400px; }
 }
 ```
 

@@ -1,8 +1,7 @@
 /*
  * Rainy Window: a night city, out of focus, seen through a window covered
- * in raindrops. The city and the drops are two layers that drift at
- * different speeds as you scroll the messages (parallax), and messages are
- * liquid glass bubbles: their edges work as lenses, bending the city and
+ * in raindrops. The window stays still while you scroll: only the messages
+ * move. Messages are liquid glass bubbles: their edges work as lenses, bending the city and
  * the drops behind them and splitting the lights into rainbows (real
  * refraction, from public/glass.js, in Chrome and other Chromium browsers;
  * elsewhere, and in Lite mode, they just blur).
@@ -13,7 +12,6 @@
  *   --refraction           how strongly the bubbles' edges bend what's behind (px)
  *   --dispersion           how much the lights split into rainbows at the edges
  *   --rain                 how visible the raindrops are
- *   --parallax             how far the layers drift (0 turns it off)
  *
  * It draws on the app's four empty theme layers (.theme-layers), from the
  * back: the city, rain falling outside, drops on the glass (each showing
@@ -23,8 +21,8 @@
  *
  * Nothing on the layers moves with `transform`: Chrome's refraction (an
  * SVG backdrop filter) doesn't see a transformed layer properly, and would
- * cut part of it off behind each bubble's rim. So the rain, the drift and
- * the parallax all move the layers' backgrounds instead.
+ * cut part of it off behind each bubble's rim. So the falling rain moves
+ * the layer's background instead.
  *
  * Lite version: theme-lite.css (no blur, more solid bubbles).
  */
@@ -38,7 +36,6 @@
   --refraction: 22;
   --dispersion: 0.35;
   --rain: 0.9;
-  --parallax: 1;
   --bubble-alpha: calc(1 - var(--bubble-transparency));
 
   /* Real refraction (public/glass.js), with the sliders' settings. */
@@ -160,22 +157,9 @@
 /* ------------------------------------------------------------ the window */
 
 /*
- * How far the far layer (the city) and the near layers (the drops) have
- * drifted, and how far the rain outside has fallen. Registered, so they can
- * be animated smoothly; the layers use them in their background positions.
+ * How far the rain outside has fallen. Registered, so it can be animated
+ * smoothly; the rain layer uses it as its background position.
  */
-@property --far {
-  syntax: "<length>";
-  inherits: true;
-  initial-value: 0px;
-}
-
-@property --near {
-  syntax: "<length>";
-  inherits: true;
-  initial-value: 0px;
-}
-
 @property --fall {
   syntax: "<length>";
   inherits: true;
@@ -185,14 +169,12 @@
 /*
  * The page holds the picture layers behind everything. `isolation` keeps
  * them inside it (z-index -1 puts them behind the content but in front of
- * its background), and `timeline-scope` lets them follow the message
- * list's scrolling (below).
+ * its background).
  */
 body {
   position: relative;
   isolation: isolate;
   overflow: hidden;
-  timeline-scope: --chat;
 }
 
 .theme-layers {
@@ -207,13 +189,10 @@ body {
   position: absolute;
 }
 
-/*
- * 1. The city, far away and out of focus. A little taller than the screen,
- * so it can drift without showing its edge.
- */
+/* 1. The city, far away and out of focus. */
 .layer-1 {
-  inset: -8% -2%;
-  background: url(city.svg) center calc(50% + var(--far)) / cover no-repeat, #0b1020;
+  inset: 0;
+  background: url(city.svg) center / cover no-repeat, #0b1020;
 }
 
 /* 2. Rain falling outside, past the lights: a faint tile that loops downward. */
@@ -233,70 +212,28 @@ body {
 .layer-3 {
   inset: 0;
   background:
-    url(drops.svg) 0 var(--near) / 460px 460px,
-    url(drops-small.svg) 137px calc(91px + var(--near)) / 250px 250px,
-    url(city-drops.svg) 50% calc(50% + var(--near)) / 520px 520px;
+    url(drops.svg) 0 0 / 460px 460px,
+    url(drops-small.svg) 137px 91px / 250px 250px,
+    url(city-drops.svg) 50% 50% / 520px 520px;
   -webkit-mask:
-    url(drops-mask.svg) 0 var(--near) / 460px 460px,
-    url(drops-small-mask.svg) 137px calc(91px + var(--near)) / 250px 250px;
+    url(drops-mask.svg) 0 0 / 460px 460px,
+    url(drops-small-mask.svg) 137px 91px / 250px 250px;
   mask:
-    url(drops-mask.svg) 0 var(--near) / 460px 460px,
-    url(drops-small-mask.svg) 137px calc(91px + var(--near)) / 250px 250px;
+    url(drops-mask.svg) 0 0 / 460px 460px,
+    url(drops-small-mask.svg) 137px 91px / 250px 250px;
   opacity: var(--rain);
 }
 
 /* 4. Drops sliding down in fits and starts, leaving trails (animated in runners.svg). */
 .layer-4 {
   inset: 0;
-  background: url(runners.svg) 0 var(--near) / 460px 1100px;
+  background: url(runners.svg) 0 0 / 460px 1100px;
   opacity: var(--rain);
 }
 
 @keyframes rainy-window-fall {
   to {
     --fall: 400px;
-  }
-}
-
-/*
- * Parallax: scrolling the messages drives the layers. The message list
- * names its scroll position `--chat`, and the layers' animations run along
- * it instead of along time: from the top of the history to the bottom, the
- * city drifts a little and the drops, nearer, drift more. Browsers without
- * scroll-driven animations just show still layers.
- */
-.messages {
-  scroll-timeline: --chat block;
-}
-
-@supports (animation-timeline: scroll()) {
-  .layer-1 {
-    animation: rainy-window-far linear both;
-    animation-timeline: --chat;
-  }
-
-  .layer-3,
-  .layer-4 {
-    animation: rainy-window-near linear both;
-    animation-timeline: --chat;
-  }
-}
-
-@keyframes rainy-window-far {
-  from {
-    --far: calc(var(--parallax) * 2.5vh);
-  }
-  to {
-    --far: calc(var(--parallax) * -2.5vh);
-  }
-}
-
-@keyframes rainy-window-near {
-  from {
-    --near: calc(var(--parallax) * 6vh);
-  }
-  to {
-    --near: calc(var(--parallax) * -6vh);
   }
 }
 

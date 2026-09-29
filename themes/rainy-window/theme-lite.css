@@ -2,7 +2,7 @@
  * Rainy Window, Lite: for phones where blur stutters. Nothing blurs, so
  * panels and bubbles get a deeper tint to keep text readable, and the
  * sliding drops (redrawn every frame) are left out. The window, the rain
- * outside, the drops and the parallax stay: they're cheap to draw. The
+ * outside and the drops stay: they're cheap to draw. The
  * transparency slider still works, from a more solid starting point.
  */
 

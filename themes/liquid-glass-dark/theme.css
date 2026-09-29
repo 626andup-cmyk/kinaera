@@ -136,19 +136,14 @@
 
 /*
  * Behind everything, on the app's theme layers: black with coloured smoke,
- * the neon ribbons, and faint star dust. The neon and dust drift a little
- * (the dust faster) as you scroll the messages.
- *
- * The drift moves the layers' backgrounds, not the layers themselves:
- * Chrome's refraction (an SVG backdrop filter) doesn't see a transformed
- * layer properly, and cuts off part of it behind each bubble's rim.
+ * the neon ribbons, and faint star dust. They stay still while you
+ * scroll: only the messages move.
  */
 body {
   position: relative;
   isolation: isolate;
   overflow: hidden;
   background: #020206;
-  timeline-scope: --chat;
 }
 
 .theme-layers {
@@ -177,40 +172,6 @@ body {
 
 .layer-3 {
   background: url(dust.svg) 0 0 / 480px 480px;
-}
-
-.messages {
-  scroll-timeline: --chat block;
-}
-
-@supports (animation-timeline: scroll()) {
-  .layer-2 {
-    animation: liquid-glass-dark-drift linear both;
-    animation-timeline: --chat;
-  }
-
-  .layer-3 {
-    animation: liquid-glass-dark-drift-far linear both;
-    animation-timeline: --chat;
-  }
-}
-
-@keyframes liquid-glass-dark-drift {
-  from {
-    background-position-y: calc(50% + 5vh);
-  }
-  to {
-    background-position-y: calc(50% - 5vh);
-  }
-}
-
-@keyframes liquid-glass-dark-drift-far {
-  from {
-    background-position-y: 12vh;
-  }
-  to {
-    background-position-y: -12vh;
-  }
 }
 
 /* ------------------------------------------------------------- the glass */

@@ -134,18 +134,13 @@
 
 /*
  * Behind everything, on the app's theme layers: soft colour, a grid, and a
- * few vivid shapes. The glass bends them at its edges. The grid and shapes
- * drift a little as you scroll the messages.
- *
- * The drift moves the layers' backgrounds, not the layers themselves:
- * Chrome's refraction (an SVG backdrop filter) doesn't see a transformed
- * layer properly, and cuts off part of it behind each bubble's rim.
+ * few vivid shapes. The glass bends them at its edges. They stay still
+ * while you scroll: only the messages move.
  */
 body {
   position: relative;
   isolation: isolate;
   overflow: hidden;
-  timeline-scope: --chat;
 }
 
 .theme-layers {
@@ -174,27 +169,6 @@ body {
 .layer-3 {
   inset: 0;
   background: url(ribbons.svg) center / cover no-repeat;
-}
-
-.messages {
-  scroll-timeline: --chat block;
-}
-
-@supports (animation-timeline: scroll()) {
-  .layer-2,
-  .layer-3 {
-    animation: liquid-glass-drift linear both;
-    animation-timeline: --chat;
-  }
-}
-
-@keyframes liquid-glass-drift {
-  from {
-    background-position-y: calc(50% + 5vh);
-  }
-  to {
-    background-position-y: calc(50% - 5vh);
-  }
 }
 
 /* ------------------------------------------------------------- the glass */
