@@ -424,6 +424,48 @@ export const MIGRATIONS: Migration[] = [
     assign.run("rpAssignment", JSON.stringify(`profile:${id}`));
     assign.run("oocAssignment", JSON.stringify(`profile:${id}`));
   },
+
+  // ---------------------------------------------------------------- 2
+  // Rebuild stage 2: messages with history. Nothing is overwritten in
+  // place: edits keep every version, deleting leaves a tombstone, and a
+  // regenerated reply is kept as a superseded alternate. And the
+  // intervention log: everything you do that affects your friend.
+  `
+  -- Who last edited a message ('user' or 'friend'; NULL if never edited).
+  ALTER TABLE messages ADD COLUMN edited_by TEXT CHECK (edited_by IN ('user', 'friend'));
+  -- A tombstone: the message has left the chat, but stays in history.
+  ALTER TABLE messages ADD COLUMN deleted_at TEXT;
+  ALTER TABLE messages ADD COLUMN deleted_by TEXT CHECK (deleted_by IN ('user', 'friend'));
+  -- A regenerated reply: the turn id of the reply that replaced it.
+  ALTER TABLE messages ADD COLUMN superseded_by TEXT;
+  CREATE INDEX messages_by_superseding_turn ON messages (superseded_by);
+
+  -- Every version of an edited message, oldest first. The first edit also
+  -- saves the original, so a message with no rows here was never edited.
+  CREATE TABLE message_revisions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id TEXT NOT NULL REFERENCES messages (id) ON DELETE CASCADE,
+    content    TEXT NOT NULL,
+    -- Who wrote this version.
+    author     TEXT NOT NULL CHECK (author IN ('user', 'friend')),
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX message_revisions_by_message ON message_revisions (message_id, id);
+
+  -- The intervention log: every action of yours that affects your friend,
+  -- which they can read (read_interventions), and you can too.
+  CREATE TABLE interventions (
+    id         TEXT PRIMARY KEY,
+    at         TEXT NOT NULL,
+    -- 'edit', 'delete', 'regenerate', 'clear', 'settings'...
+    kind       TEXT NOT NULL,
+    -- What happened, in a sentence, as your friend reads it.
+    summary    TEXT NOT NULL,
+    channel_id TEXT,
+    message_id TEXT
+  );
+  CREATE INDEX interventions_by_time ON interventions (at);
+  `,
 ];
 
 /**

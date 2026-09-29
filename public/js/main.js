@@ -23,6 +23,7 @@
  *   notebook.js     the notebook, entries, folders and casts
  *   library.js      the reference library
  *   inbox.js        proposals and suggestions
+ *   history.js      message history, and the intervention log
  *   settings.js     settings, profiles, roulettes, logs
  *   themes.js       themes and appearance
  *   friend-page.js  friends, servers and the friend menu
@@ -54,6 +55,7 @@ import { newComment, openThread, resolveThread, sendComment, updateCommentButton
 import { autoGrow, openAttach, renderAttachList } from "./composer.js";
 import { $, els, hideError, readLocal, showError, state, writeLocal } from "./core.js";
 import { FRIEND_KEY, loadHub, pickFriend, switchFriend } from "./friend-page.js";
+import { openInterventions } from "./history.js";
 import { openInbox } from "./inbox.js";
 import {
   deleteLibraryDoc,
@@ -305,6 +307,7 @@ $("regenerate-form").addEventListener("submit", (event) => {
 
 // Stage 6: activity, tool log, inbox, comments, attachments.
 $("inbox-button").addEventListener("click", openInbox);
+$("open-interventions").addEventListener("click", openInterventions);
 $("open-tool-log").addEventListener("click", openToolLog);
 $("tool-log-errors").addEventListener("change", renderToolLog);
 $("tool-log-copy").addEventListener("click", copyToolLog);

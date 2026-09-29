@@ -258,6 +258,15 @@ export interface Message {
   createdAt: string;
   /** When the message was last edited, if ever. */
   editedAt?: string;
+  /** Who last edited it, if anyone. Every version is kept (see `MessageHistory`). */
+  editedBy?: Author;
+  /** A deleted message (a tombstone): gone from the chat, kept in history. */
+  deletedAt?: string;
+  deletedBy?: Author;
+  /** A regenerated reply: the turn id of the reply that replaced it. */
+  supersededBy?: string;
+  /** How many earlier replies this one replaced (regenerations), kept as alternates. */
+  alternates: number;
   /** For friend messages: which model wrote it. */
   model?: string;
   /**
@@ -547,6 +556,25 @@ export interface ChannelSummaries {
   running: boolean;
   /** The last error writing them, if the last attempt failed. */
   error: string | null;
+}
+
+/** One version of an edited message. */
+export interface Revision {
+  content: string;
+  /** Who wrote this version. */
+  author: Author;
+  createdAt: string;
+}
+
+/**
+ * Everything that happened to a message: every version of its text,
+ * oldest first (empty if it was never edited), and the replies it replaced
+ * (for a regenerated reply), oldest first.
+ */
+export interface MessageHistory {
+  message: Message;
+  revisions: Revision[];
+  alternates: Message[];
 }
 
 /** An emoji reaction on a message: a Unicode emoji, or `:name:` of a custom one. */

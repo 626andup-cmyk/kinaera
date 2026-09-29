@@ -189,7 +189,9 @@ export class Comments {
     const ids = this.db
       .query(
         `SELECT c.id FROM comments c JOIN messages m ON m.id = c.message_id
-          WHERE m.channel_id = $channelId AND c.thread_id = c.id ORDER BY c.created_at, c.rowid`,
+          WHERE m.channel_id = $channelId AND c.thread_id = c.id
+            AND m.deleted_at IS NULL AND m.superseded_by IS NULL
+          ORDER BY c.created_at, c.rowid`,
       )
       .all({ channelId }) as { id: string }[];
     return ids.map(({ id }) => this.thread(id));

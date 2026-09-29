@@ -25,6 +25,7 @@ import { WakeLog } from "./wakeups.ts";
 import { Library } from "./library.ts";
 import { Reactions } from "./reactions.ts";
 import { AppState } from "./appstate.ts";
+import { Interventions } from "./interventions.ts";
 import type {
   Category,
   Author,
@@ -33,7 +34,9 @@ import type {
   ChannelMode,
   EntryField,
   Message,
+  MessageHistory,
   MessageKind,
+  Revision,
   Settings,
 } from "./types.ts";
 
@@ -393,6 +396,11 @@ interface MessageRow {
   content: string;
   created_at: string;
   edited_at: string | null;
+  edited_by: Author | null;
+  deleted_at: string | null;
+  deleted_by: Author | null;
+  superseded_by: string | null;
+  alternates: number;
   model: string | null;
   profile: string | null;
   /** A JSON array of character names, built by the query itself. */
@@ -436,7 +444,11 @@ function toMessage(row: MessageRow): Message {
     reactions: JSON.parse(row.reactions) as Message["reactions"],
     createdAt: row.created_at,
     // Only include optional fields when they have a value.
+    alternates: row.alternates,
     ...(row.edited_at ? { editedAt: row.edited_at } : {}),
+    ...(row.edited_by ? { editedBy: row.edited_by } : {}),
+    ...(row.deleted_at ? { deletedAt: row.deleted_at, deletedBy: row.deleted_by! } : {}),
+    ...(row.superseded_by ? { supersededBy: row.superseded_by } : {}),
     ...(row.model ? { model: row.model } : {}),
     ...(row.profile ? { profile: row.profile } : {}),
   };
@@ -450,6 +462,9 @@ function toMessage(row: MessageRow): Message {
  */
 const SELECT_MESSAGES = `
   SELECT m.id, m.channel_id, m.kind, m.mode, m.turn_id, m.author, m.content, m.created_at, m.edited_at, m.model, m.profile,
+    m.edited_by, m.deleted_at, m.deleted_by, m.superseded_by,
+    (SELECT COUNT(DISTINCT COALESCE(a.turn_id, a.id)) FROM messages a
+       WHERE m.turn_id IS NOT NULL AND a.superseded_by = m.turn_id AND a.channel_id = m.channel_id) AS alternates,
     (SELECT json_group_array(character_name)
        FROM (SELECT character_name FROM message_characters
               WHERE message_id = m.id ORDER BY position)) AS characters,
@@ -457,6 +472,12 @@ const SELECT_MESSAGES = `
     (SELECT json_group_array(json_object('emoji', emoji, 'author', author))
        FROM (SELECT emoji, author FROM reactions WHERE message_id = m.id ORDER BY created_at, rowid)) AS reactions
   FROM messages m`;
+
+/**
+ * Messages that are in the chat: not deleted, and not replaced by a
+ * regeneration. (Those stay in the table, for history.)
+ */
+const LIVE = "m.deleted_at IS NULL AND m.superseded_by IS NULL";
 
 // ----------------------------------------------------------------- store
 
@@ -499,6 +520,8 @@ export class Store {
   readonly reactions: Reactions;
   /** Small values kept between runs. */
   readonly appState: AppState;
+  /** Everything you do that affects your friend (see `src/interventions.ts`). */
+  readonly interventions: Interventions;
   /** Your friend's recent wake-ups, and what came of them (see `src/wakeups.ts`). */
   readonly wakeLog: WakeLog;
   /**
@@ -551,6 +574,7 @@ export class Store {
     this.reactions = new Reactions(this.db, inMemory ? join(tmpdir(), `kinaera-emojis-${crypto.randomUUID()}`) : dataDir, () => this.revision++);
     this.wakeLog = new WakeLog(this.db);
     this.appState = new AppState(this.db);
+    this.interventions = new Interventions(this.db);
 
     if (isNew) this.seed(options.example ?? true);
   }
@@ -710,10 +734,10 @@ export class Store {
   currentSceneIsEmpty(channelId: string): boolean {
     const { count } = this.db
       .query(
-        `SELECT COUNT(*) AS count FROM messages
-          WHERE channel_id = $channelId AND kind = 'post'
-            AND seq > COALESCE(
-              (SELECT MAX(seq) FROM messages WHERE channel_id = $channelId AND kind = 'scene_break'), 0)`,
+        `SELECT COUNT(*) AS count FROM messages m
+          WHERE m.channel_id = $channelId AND m.kind = 'post' AND ${LIVE}
+            AND m.seq > COALESCE(
+              (SELECT MAX(seq) FROM messages m WHERE m.channel_id = $channelId AND m.kind = 'scene_break' AND ${LIVE}), 0)`,
       )
       .get({ channelId }) as { count: number };
     return count === 0;
@@ -815,26 +839,39 @@ export class Store {
 
   // -------------------------------------------------------------- messages
 
-  /** Every message in a channel, oldest first. */
+  /**
+   * Every message in a channel's chat, oldest first: not deleted ones, or
+   * replies that were regenerated (those are in `history`).
+   */
   getMessages(channelId: string): Message[] {
     this.getChannel(channelId); // throws NotFoundError for an unknown channel
-    const rows = this.db.query(`${SELECT_MESSAGES} WHERE m.channel_id = $channelId ORDER BY m.seq`).all({
+    const rows = this.db.query(`${SELECT_MESSAGES} WHERE m.channel_id = $channelId AND ${LIVE} ORDER BY m.seq`).all({
       channelId,
     }) as MessageRow[];
     return rows.map(toMessage);
   }
 
-  /** One message. Throws `NotFoundError` if there's no such message. */
+  /**
+   * One message, even a deleted or replaced one (see `deletedAt` and
+   * `supersededBy`). Throws `NotFoundError` if there's no such message.
+   */
   getMessage(id: string): Message {
     const row = this.db.query(`${SELECT_MESSAGES} WHERE m.id = $id`).get({ id }) as MessageRow | null;
     if (!row) throw new NotFoundError("message");
     return toMessage(row);
   }
 
-  /** The newest message in a channel, or `undefined` if it's empty. */
+  /** One message that's in the chat. Throws `NotFoundError` if it isn't (deleted or replaced). */
+  getLiveMessage(id: string): Message {
+    const message = this.getMessage(id);
+    if (message.deletedAt || message.supersededBy) throw new NotFoundError("message");
+    return message;
+  }
+
+  /** The newest message in a channel's chat, or `undefined` if it's empty. */
   lastMessage(channelId: string): Message | undefined {
     const row = this.db
-      .query(`${SELECT_MESSAGES} WHERE m.channel_id = $channelId ORDER BY m.seq DESC LIMIT 1`)
+      .query(`${SELECT_MESSAGES} WHERE m.channel_id = $channelId AND ${LIVE} ORDER BY m.seq DESC LIMIT 1`)
       .get({ channelId }) as MessageRow | null;
     return row ? toMessage(row) : undefined;
   }
@@ -918,29 +955,116 @@ export class Store {
     if (!last || last.kind !== "post" || last.author !== "friend") return [];
     if (!last.turnId) return [last];
     const rows = this.db
-      .query(`${SELECT_MESSAGES} WHERE m.channel_id = $channelId AND m.turn_id = $turnId ORDER BY m.seq`)
+      .query(`${SELECT_MESSAGES} WHERE m.channel_id = $channelId AND m.turn_id = $turnId AND ${LIVE} ORDER BY m.seq`)
       .all({ channelId, turnId: last.turnId }) as MessageRow[];
     return rows.map(toMessage);
   }
 
-  /** Replace a message's text. Throws `NotFoundError` if it doesn't exist. */
-  editMessage(id: string, content: string): Message {
-    this.summaries.messageChanging(this.getMessage(id), false);
-    const result = this.db
-      .query("UPDATE messages SET content = $content, edited_at = $editedAt WHERE id = $id")
-      .run({ id, content, editedAt: new Date().toISOString() });
-    if (result.changes === 0) throw new NotFoundError("message");
-    const message = this.getMessage(id);
+  /**
+   * Change a message's text. Nothing is overwritten: the first edit also
+   * saves the original, and every version is kept (see `history`).
+   *
+   * @param by  Who's editing. Your friend may only edit their own messages.
+   * @throws NotFoundError   if the message isn't in the chat.
+   * @throws ValidationError if your friend tries to edit someone else's.
+   */
+  editMessage(id: string, content: string, by: Author = "user"): Message {
+    const message = this.getLiveMessage(id);
+    if (by === "friend" && message.author !== "friend") throw new ValidationError("You can only edit your own messages.");
+    if (content === message.content) return message;
+    this.summaries.messageChanging(message, false);
+    const now = new Date().toISOString();
+    this.db.transaction(() => {
+      const insert = this.db.query(
+        "INSERT INTO message_revisions (message_id, content, author, created_at) VALUES ($id, $content, $author, $at)",
+      );
+      const { n } = this.db.query("SELECT COUNT(*) AS n FROM message_revisions WHERE message_id = $id").get({ id }) as { n: number };
+      if (n === 0) insert.run({ id, content: message.content, author: message.author, at: message.createdAt });
+      insert.run({ id, content, author: by, at: now });
+      this.db.query("UPDATE messages SET content = $content, edited_at = $now, edited_by = $by WHERE id = $id").run({ id, content, now, by });
+      if (by === "user" && message.author === "friend") {
+        this.interventions.add({
+          kind: "edit",
+          summary: `The user edited ${message.kind === "scene_break" ? "the title of a scene break you made" : "your message"} in #${this.getChannel(message.channelId).name}.`,
+          channelId: message.channelId,
+          messageId: id,
+        });
+      }
+    })();
     this.messagesChanged(message.channelId);
-    return message;
+    return this.getMessage(id);
   }
 
-  /** Delete one message. Throws `NotFoundError` if it doesn't exist. */
-  deleteMessage(id: string): void {
-    const message = this.getMessage(id); // throws NotFoundError
+  /**
+   * Delete a message: it leaves the chat (and every prompt), but stays in
+   * history as a tombstone.
+   *
+   * @param by  Who's deleting. Your friend may only delete their own messages.
+   */
+  deleteMessage(id: string, by: Author = "user"): void {
+    const message = this.getLiveMessage(id);
+    if (by === "friend" && message.author !== "friend") throw new ValidationError("You can only delete your own messages.");
     this.summaries.messageChanging(message, true);
-    this.db.query("DELETE FROM messages WHERE id = $id").run({ id });
+    this.db.transaction(() => {
+      this.db.query("UPDATE messages SET deleted_at = $now, deleted_by = $by WHERE id = $id").run({ id, now: new Date().toISOString(), by });
+      if (by === "user" && message.author === "friend") {
+        this.interventions.add({
+          kind: "delete",
+          summary: `The user deleted ${message.kind === "scene_break" ? "a scene break you made" : "your message"} in #${this.getChannel(message.channelId).name}: "${snippet(message.content)}"`,
+          channelId: message.channelId,
+          messageId: id,
+        });
+      }
+    })();
     this.messagesChanged(message.channelId);
+  }
+
+  /**
+   * A regeneration: the old reply leaves the chat, replaced by the new
+   * turn `turnId`, and is kept as an alternate of it.
+   */
+  supersede(ids: string[], turnId: string): void {
+    if (ids.length === 0) return;
+    const messages = ids.map((id) => this.getLiveMessage(id));
+    for (const message of messages) this.summaries.messageChanging(message, true);
+    const mark = this.db.query("UPDATE messages SET superseded_by = $turnId WHERE id = $id");
+    this.db.transaction(() => {
+      for (const message of messages) mark.run({ id: message.id, turnId });
+    })();
+    this.messagesChanged(messages[0]!.channelId);
+  }
+
+  /**
+   * Everything that happened to a message: every version of its text, and
+   * the replies it replaced, including ones those replaced in turn.
+   */
+  history(id: string): MessageHistory {
+    const message = this.getMessage(id);
+    const revisions = (
+      this.db
+        .query("SELECT content, author, created_at FROM message_revisions WHERE message_id = $id ORDER BY id")
+        .all({ id }) as { content: string; author: Author; created_at: string }[]
+    ).map((r): Revision => ({ content: r.content, author: r.author, createdAt: r.created_at }));
+    const alternates: Message[] = [];
+    const seen = new Set<string>();
+    let turns = message.turnId ? [message.turnId] : [];
+    while (turns.length > 0) {
+      const next: string[] = [];
+      for (const turnId of turns) {
+        if (seen.has(turnId)) continue;
+        seen.add(turnId);
+        const rows = this.db
+          .query(`${SELECT_MESSAGES} WHERE m.channel_id = $channelId AND m.superseded_by = $turnId ORDER BY m.seq`)
+          .all({ channelId: message.channelId, turnId }) as MessageRow[];
+        for (const row of rows) {
+          alternates.push(toMessage(row));
+          if (row.turn_id) next.push(row.turn_id);
+        }
+      }
+      turns = next;
+    }
+    alternates.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return { message, revisions, alternates };
   }
 
   /**
@@ -970,11 +1094,28 @@ export class Store {
     })();
   }
 
-  /** Delete every message in a channel, keeping the channel itself. */
-  clearMessages(channelId: string): void {
-    this.getChannel(channelId); // throws NotFoundError for an unknown channel
-    this.db.query("DELETE FROM messages WHERE channel_id = $channelId").run({ channelId });
+  /**
+   * Clear a channel: every message leaves the chat, as tombstones (see
+   * `deleteMessage`). The channel itself stays.
+   */
+  clearMessages(channelId: string, by: Author = "user"): void {
+    const channel = this.getChannel(channelId); // throws NotFoundError for an unknown channel
+    const hadFriend = this.getMessages(channelId).some((m) => m.author === "friend");
+    this.db.transaction(() => {
+      this.db
+        .query("UPDATE messages SET deleted_at = $now, deleted_by = $by WHERE channel_id = $channelId AND deleted_at IS NULL AND superseded_by IS NULL")
+        .run({ channelId, now: new Date().toISOString(), by });
+      if (by === "user" && hadFriend) {
+        this.interventions.add({ kind: "clear", summary: `The user cleared every message in #${channel.name}.`, channelId });
+      }
+    })();
     this.summaries.clear(channelId);
     this.messagesChanged(channelId);
   }
+}
+
+/** The start of a message, on one line, for the intervention log. */
+function snippet(text: string, length = 80): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > length ? `${flat.slice(0, length)}…` : flat;
 }

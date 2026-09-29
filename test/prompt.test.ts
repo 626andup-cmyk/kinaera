@@ -110,6 +110,7 @@ function msg(author: Author, content: string, extra: Partial<Message> = {}): Mes
     id: String(nextId++),
     channelId: "story",
     kind: "post",
+    alternates: 0,
     mode: "literary",
     turnId: null,
     author,

@@ -2,7 +2,7 @@
 
 Kinaera is a Discord-style space for writing stories and hanging out with one or more AI friends: writers with their own style who play characters alongside you, using models from [nanoGPT](https://nano-gpt.com). It's designed as if the friends could be people: they get real tools to check things, ask for help and fix their own mistakes, and parts of their life that are theirs.
 
-**Status: being rebuilt from Aettica.** [KINAERA_REBUILD.md](KINAERA_REBUILD.md) is the plan, and each finished step has a doc in `docs/` ([1a](docs/rebuild-1a.md), [1b](docs/rebuild-1b.md), [1c](docs/rebuild-1c.md)). Everything below works today.
+**Status: being rebuilt from Aettica.** [KINAERA_REBUILD.md](KINAERA_REBUILD.md) is the plan, and each finished step has a doc in `docs/` ([1a](docs/rebuild-1a.md), [1b](docs/rebuild-1b.md), [1c](docs/rebuild-1c.md), [2](docs/rebuild-2.md)). Everything below works today.
 
 ## What it can do
 
@@ -33,7 +33,7 @@ Kinaera is a Discord-style space for writing stories and hanging out with one or
 - **Your friend reaches out**: when you come back after a while, when a scene ends, or when a suggestion is waiting for them, your friend gets a turn of their own in OOC, and decides whether to write. Plain rules (chattiness, quiet hours, a cooldown, never twice without you writing) keep it from being too much (Settings → Your friend reaching out, with a log of every wake-up). A dot marks channels with messages you haven't seen.
 - **Friend's turn**: let your friend write without a new message from you, including opening an empty channel.
 - **Stop** a reply that's taking too long. Nothing is saved, and the channel is free again.
-- **Regenerate** the friend's last reply (or **Regenerate with…** a particular profile), **edit** or **delete** any message.
+- **Regenerate** the friend's last reply (or **Regenerate with…** a particular profile), **edit** or **delete** any message. Nothing is overwritten: tap "(edited)" or "↻ 2" for a message's history. Your friend can fix their own messages too, and **What you've changed** (friend menu) lists everything you've done that affects them. See [messages with history](docs/rebuild-2.md).
 - **Preview prompt**: see exactly what the model receives on the next turn in a channel.
 - **Themes**: pick one in Appearance (the palette button). Classic, Frutiger Aero, Aero Glass, Liquid Glass, Liquid Glass Dark and Rainy Window (a night city through a window of raindrops that slide down and drift as you scroll, with glossy liquid glass bubbles) are built in. The Liquid Glass themes and Rainy Window's bubbles are real refracting glass, like Apple's: what's behind bends and splits into rainbows at the edges of each pane (in Chrome, including on Android). Themes can offer sliders in Appearance, like Rainy Window's bubble transparency or Liquid Glass's refraction. Any channel can have its own theme, and you can copy a theme and edit its CSS and images right in the app. Glass effects can be Full, Lite (easier on the phone) or Automatic. See the [theme reference](docs/theme-reference.md).
 - Install it to your home screen as an app (PWA).
@@ -131,6 +131,8 @@ src/
   db.ts        The database's tables, and upgrading them (migrations)
   store.ts     Reading and writing channels, messages and settings
   appstate.ts  Small values kept between runs
+  interventions.ts  The intervention log: what you've done that affects your friend
+  wording.ts   Reads prompt wording from defaults/ (like defaults/standing.md)
   errors.ts    Errors the server turns into 404, 400 and 403 answers
   config.ts    Reads settings from .env
   types.ts     The shapes of channels, messages and settings
@@ -138,7 +140,7 @@ public/        The web app (plain HTML, CSS and JavaScript, no build step)
   js/          The app itself, as ES modules, one per area: main.js is the starting point
   glass.js     Real refraction for the glass themes
 themes/        Built-in themes (Classic, Frutiger Aero, Aero Glass, Liquid Glass, Liquid Glass Dark, Rainy Window)
-defaults/      Starting friend prompts and the example character
+defaults/      Starting friend prompts, the example character, and prompt wording you can edit
 test/          Tests
 docs/          How things work, and the theme reference
 ```

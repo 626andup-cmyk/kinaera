@@ -61,8 +61,9 @@ export interface TurnOptions {
   /**
    * Ids of existing friend messages this turn replaces (a regeneration:
    * one literary post, or every bubble of a casual reply). They're left out
-   * of the prompt, as if never written, and deleted only once the new reply
-   * has been saved. If generation fails, or writes nothing, they stay.
+   * of the prompt, as if never written, and only once the new reply has
+   * been saved do they leave the chat, kept as alternates of it (see
+   * `Store.supersede`). If generation fails, or writes nothing, they stay.
    */
   replacing?: string[];
   /**
@@ -334,7 +335,7 @@ function reviewsFor(store: Store): PromptReview[] {
 
 /** Tool actions that changed something (not reading), newest last, plus how proposals went. */
 function recentActions(store: Store, channelId: string): string[] {
-  const quiet = new Set(["read_notebook_entry", "search_notebook", "do_nothing"]);
+  const quiet = new Set(["read_notebook_entry", "search_notebook", "do_nothing", "read_message_history", "read_interventions"]);
   const actions = store.toolLog
     .forChannel(channelId, 60)
     .filter((call) => call.status === "ok" && !quiet.has(call.name))
@@ -518,7 +519,7 @@ export class Friend {
 
       // Swap old for new in one transaction: never both, never neither.
       result.messages = this.store.db.transaction(() => {
-        for (const id of options.replacing ?? []) this.store.deleteMessage(id);
+        this.store.supersede(options.replacing ?? [], turnId);
         return this.store.addTurn(newMessages, turnId);
       })();
       result.replaced = options.replacing ?? [];

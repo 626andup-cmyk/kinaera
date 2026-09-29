@@ -668,6 +668,10 @@
           see it.
         </p>
 
+        <div class="memory-buttons">
+          <button type="button" class="button" id="open-interventions">What you've changed</button>
+        </div>
+
         <label for="friend-name-input">Name</label>
         <input id="friend-name-input" name="friendName" autocomplete="off" />
 
@@ -1170,6 +1174,30 @@
         <button type="button" class="button" id="tool-log-copy">Copy as text</button>
       </div>
       <ol id="tool-log-list" class="tool-log-list"></ol>
+      <p class="form-error" role="alert" hidden></p>
+      <div class="dialog-buttons">
+        <span class="spacer"></span>
+        <button type="button" class="button button-primary" data-close>Close</button>
+      </div>
+    </dialog>
+
+    <!-- A message's history: every version of its text, and the replies it replaced (js/history.js). -->
+    <dialog id="history-dialog" class="dialog surface tool-log">
+      <h2 class="dialog-title">History</h2>
+      <p class="hint" id="history-note"></p>
+      <ol id="history-list" class="tool-log-list"></ol>
+      <p class="form-error" role="alert" hidden></p>
+      <div class="dialog-buttons">
+        <span class="spacer"></span>
+        <button type="button" class="button button-primary" data-close>Close</button>
+      </div>
+    </dialog>
+
+    <!-- The intervention log: what you've done that affects your friend (js/history.js). -->
+    <dialog id="interventions-dialog" class="dialog surface tool-log">
+      <h2 class="dialog-title">What you've changed</h2>
+      <p class="hint" id="interventions-note"></p>
+      <ol id="interventions-list" class="wake-log-list"></ol>
       <p class="form-error" role="alert" hidden></p>
       <div class="dialog-buttons">
         <span class="spacer"></span>

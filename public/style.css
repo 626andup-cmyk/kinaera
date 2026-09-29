@@ -1104,6 +1104,42 @@ button:disabled {
   border-bottom: 1px solid var(--scene-break-line);
 }
 
+/* "(edited)" and "↻ 2" next to a message's time: tap for its history. */
+.message-history {
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.message-history:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+/* One version in a message's history. */
+.history-version {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: var(--input-border);
+  border-radius: var(--radius-md);
+  background: var(--input-bg);
+  font-size: 14px;
+}
+
+.history-version[data-current] {
+  border-color: var(--accent);
+}
+
+.history-version-text {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+}
+
 /* Channel settings → Memory: the channel's summaries. */
 .memory {
   margin-top: 20px;

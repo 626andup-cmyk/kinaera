@@ -11,6 +11,7 @@ import { highlightThreads, newComment, openThread, threadsOn } from "./comments.
 import { autoGrow, renderAttachments } from "./composer.js";
 import { $, api, channelPath, currentChannel, els, hideError, showError, state } from "./core.js";
 import { badge, formatText, formatTime, hueFor, initial } from "./format.js";
+import { openHistory } from "./history.js";
 import { checkForUpdate } from "./live.js";
 import { refreshNotebook } from "./notebook.js";
 import { openReactionPicker, renderReactions } from "./reactions.js";
@@ -623,8 +624,21 @@ function renderMessage(message, { continued = false, regenerate: showRegenerate 
   const time = document.createElement("time");
   time.className = "message-time";
   time.dateTime = message.createdAt;
-  time.textContent = formatTime(message.createdAt) + (message.editedAt ? " (edited)" : "");
+  time.textContent = formatTime(message.createdAt);
   meta.append(time);
+  // Edited, or a regenerated reply: tap for its history (js/history.js).
+  if (message.editedAt || message.alternates > 0) {
+    const history = document.createElement("button");
+    history.type = "button";
+    history.className = "message-history";
+    const parts = [];
+    if (message.editedAt) parts.push("(edited)");
+    if (message.alternates > 0) parts.push(`↻ ${message.alternates + 1}`);
+    history.textContent = parts.join(" ");
+    history.title = message.alternates > 0 ? `Regenerated: ${message.alternates} earlier ${message.alternates === 1 ? "reply" : "replies"} kept. Tap for history.` : "Tap for its history";
+    history.addEventListener("click", () => openHistory(message.id));
+    meta.append(history);
+  }
   if (message.model) {
     const model = document.createElement("span");
     model.className = "message-model";

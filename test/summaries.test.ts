@@ -89,6 +89,7 @@ describe("splitScenes and windowStart", () => {
     list.map((m, i) => ({
       id: m.id ?? `m${i}`,
       channelId: "c",
+      alternates: 0,
       kind: m.kind ?? "post",
       author: "user",
       content: m.content ?? "",

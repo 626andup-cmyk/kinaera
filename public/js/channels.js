@@ -172,7 +172,7 @@ export async function deleteChannel() {
 
 export async function clearChannel() {
   const channel = currentChannel();
-  if (!confirm(`Delete every message in #${channel.name}? This can't be undone.`)) return;
+  if (!confirm(`Clear every message from #${channel.name}? They leave the chat, but each one is kept in its history.`)) return;
   try {
     await api("DELETE", channelPath("messages"), {});
     state.messages = [];

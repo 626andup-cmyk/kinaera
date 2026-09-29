@@ -51,6 +51,7 @@
 import { BUBBLE_MARKER, TEXTING_STYLE } from "./texting.ts";
 import type { PromptEntry } from "./notebook.ts";
 import { playedBy } from "./permissions.ts";
+import { wording } from "./wording.ts";
 import type { Channel, ChannelKind, ChannelMode, ChatMessage, Message, NotebookEntry, Player, Settings } from "./types.ts";
 
 /**
@@ -408,6 +409,8 @@ export function buildPromptStack({
     { title: "Waiting for your review", content: tools ? describeReviews(reviews ?? []) : null },
     { title: "What you did recently", content: (recentActions ?? []).map((line) => `- ${line}`).join("\n") },
     { title: "Tools", content: tools ? toolGuidance(channel.kind) : null },
+    // Honest notes on how things work here (defaults/standing.md).
+    { title: "Good to know", content: standingNotes(tools ?? false) },
     { title: "Reference library", content: tools ? describeLibrary(library ?? []) : null },
     // A wake-up (stage 8): why your friend is taking a turn on their own.
     { title: "Why you're up", content: wake ? describeWake(wake, tools ?? false) : null },
@@ -489,6 +492,17 @@ function describeReviews(reviews: PromptReview[]): string | null {
     "",
     ...reviews.map((r) => `- [${r.id.slice(0, 8)}] ${r.entry}: ${r.description}`),
   ].join("\n");
+}
+
+/**
+ * The standing notes every turn gets (defaults/standing.md): short, true
+ * descriptions of how things work here, like the user being able to edit
+ * messages. Never instructions on how to feel about it.
+ */
+export function standingNotes(tools: boolean): string | null {
+  const notes = wording("standing");
+  const lines = [tools ? notes.history : notes["history-no-tools"]].filter((line): line is string => Boolean(line?.trim()));
+  return lines.length ? lines.join("\n\n") : null;
 }
 
 /** How to use tools, by kind of channel. */

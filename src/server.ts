@@ -67,8 +67,10 @@
  *   PUT    /api/channels/:id/cast/:entryId     Pin a notebook entry to a channel (add it to the cast)
  *   DELETE /api/channels/:id/cast/:entryId     Unpin it
  *
- *   PATCH  /api/messages/:id                   Edit a message's text
- *   DELETE /api/messages/:id                   Delete one message
+ *   PATCH  /api/messages/:id                   Edit a message's text (every version is kept)
+ *   DELETE /api/messages/:id                   Delete one message (it's kept in history, as a tombstone)
+ *   GET    /api/messages/:id/history           A message's versions, and the replies it replaced
+ *   GET    /api/interventions                  The intervention log: what you've done that affects your friend
  *   POST   /api/messages/:id/comments          Comment on a message (your friend may reply)
  *   POST   /api/comments/:id/replies           Reply in a comment thread
  *   POST   /api/comments/:id/resolve           Resolve or reopen a thread
@@ -128,7 +130,7 @@ import { describeSeeds, randomFriend, rollSeeds } from "./rng.ts";
 import { keepAwake, Presence, TermuxNotifier, type Notifier } from "./notify.ts";
 import { DEFAULT_THEME, ThemeLibrary } from "./themes.ts";
 import { ENTRY_TEMPLATES } from "./notebook.ts";
-import type { CastMember, Channel, Message } from "./types.ts";
+import type { CastMember, Channel, Message, Settings } from "./types.ts";
 import { PermissionError } from "./errors.ts";
 import {
   NotFoundError,
@@ -141,6 +143,18 @@ import {
 
 /** A channel as the app receives it: with its cast, as you see it. */
 export type ChannelView = Channel & { cast: CastMember[] };
+
+/** Settings that are about your friend: changing one goes in the intervention log. */
+const SETTINGS_THEY_SEE: Partial<Record<keyof Settings, string>> = {
+  friendName: "your name",
+  friendPrompt: "your identity (who you are)",
+  literaryPrompt: "how you write in literary scenes",
+  casualPrompt: "how you write in casual scenes",
+  oocPrompt: "how you talk out of character",
+  friendAvatar: "your avatar",
+  friendColor: "your colour",
+  oocBubbles: "whether you text in short bubbles out of character",
+};
 
 /** Longest message you can send, in characters. A generous guard against accidents. */
 const MAX_MESSAGE_LENGTH = 100_000;
@@ -371,6 +385,18 @@ export function createApp(config: Config): App {
     return [...ids];
   }
 
+  /**
+   * Changes to who your friend is, or how they write, go in the
+   * intervention log, one line each.
+   */
+  function noteSettingsChanges(before: Settings, after: Settings): void {
+    for (const [key, what] of Object.entries(SETTINGS_THEY_SEE) as [keyof Settings, string][]) {
+      if (JSON.stringify(before[key]) !== JSON.stringify(after[key])) {
+        store.interventions.add({ kind: "settings", summary: `The user changed ${what}.` });
+      }
+    }
+  }
+
   /** Refuse to change a channel's messages while the friend is writing there. */
   function ensureIdle(channelId: string): void {
     if (friend.isBusy(channelId)) throw new BusyError();
@@ -526,7 +552,9 @@ export function createApp(config: Config): App {
         for (const assignment of [update.rpAssignment, update.oocAssignment, update.summaryAssignment, update.decisionFallback]) {
           if (assignment) store.profiles.checkAssignment(assignment);
         }
+        const before = store.getSettings();
         const settings = store.updateSettings(update);
+        noteSettingsChanges(before, settings);
         // Turning summaries on, or changing when they're written: catch up.
         if (update.summaries || update.summaryEvery || update.historyLimit) summarizer.scheduleAll();
         // The heartbeat's pace changed: start counting again from now.
@@ -791,6 +819,15 @@ export function createApp(config: Config): App {
         // If generation fails you keep the reply you had.
         const result = await friend.takeTurn(id!, "regenerate", { replacing: replacedIds, profileId });
         // If the new turn wrote nothing, the old reply stays.
+        if (result.replaced.length > 0) {
+          const how = profileId ? ` with ${store.profiles.get(profileId).name}` : "";
+          store.interventions.add({
+            kind: "regenerate",
+            summary: `The user regenerated your reply in #${store.getChannel(id!).name}${how}. The earlier one is kept as an alternate.`,
+            channelId: id!,
+            messageId: result.messages[0]?.id ?? null,
+          });
+        }
         return json({ ...turnResult(result), replacedIds: result.replaced, channels: channelViews() });
       },
     },
@@ -824,7 +861,7 @@ export function createApp(config: Config): App {
       handler: async (request, { id }) => {
         const body = await readJson(request);
         // A scene break's "content" is its title, which may be empty.
-        if (store.getMessage(id!).kind === "scene_break") {
+        if (store.getLiveMessage(id!).kind === "scene_break") {
           const title = (body as { content?: unknown } | null)?.content;
           if (typeof title !== "string" || title.length > 200) {
             throw new HttpError(400, '"content" must be text of 200 characters at most.');
@@ -838,10 +875,20 @@ export function createApp(config: Config): App {
       method: "DELETE",
       pattern: "/api/messages/:id",
       handler: (_request, { id }) => {
-        ensureIdle(store.getMessage(id!).channelId);
+        ensureIdle(store.getLiveMessage(id!).channelId);
         store.deleteMessage(id!);
         return json({ ok: true });
       },
+    },
+    {
+      method: "GET",
+      pattern: "/api/messages/:id/history",
+      handler: (_request, { id }) => json(store.history(id!)),
+    },
+    {
+      method: "GET",
+      pattern: "/api/interventions",
+      handler: () => json({ interventions: store.interventions.recent(100) }),
     },
 
     // -------------------------------------------------------- categories

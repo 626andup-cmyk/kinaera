@@ -26,7 +26,7 @@ import type { EntryView } from "./notebook.ts";
 import type { ToolSpec } from "./nanogpt.ts";
 import type { Store } from "./store.ts";
 import { channelSummaryText } from "./summaries.ts";
-import type { Channel, EntryField, Owner } from "./types.ts";
+import type { Channel, EntryField, Message, Owner } from "./types.ts";
 
 /** Where a tool runs: the channel of the turn, and what kind of turn. */
 export interface ToolContext {
@@ -169,6 +169,12 @@ function mergeFields(current: EntryField[], input: unknown): EntryField[] {
   return fields;
 }
 
+/** The start of a message, on one line, for tool summaries. */
+function snip(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > 50 ? `${flat.slice(0, 50)}…` : flat;
+}
+
 /** Text with *asterisks*, underscores and spacing removed, for finding quotes. */
 function plain(text: string): string {
   return text.replace(/[*_]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
@@ -176,6 +182,37 @@ function plain(text: string): string {
 
 /** "#story" */
 const hash = (c: Channel) => `#${c.name}`;
+
+/**
+ * Find a message in this channel's chat by a few words quoted from it,
+ * newest first. Without a quote: the newest one (of yours, with `own`).
+ */
+function findMessage(ctx: ToolContext, quote: string | undefined, own: boolean): Message {
+  const posts = ctx.store
+    .getMessages(ctx.channel.id)
+    .filter((m) => m.kind === "post" && (!own || m.author === "friend"))
+    .reverse();
+  const found = quote ? posts.find((m) => plain(m.content).includes(plain(quote))) : posts[0];
+  if (!found) {
+    const whose = own ? "of yours " : "";
+    throw new ToolError(quote ? `No recent message ${whose}in this channel contains "${quote}". Quote a few words exactly.` : `There's no message ${whose}in this channel yet.`);
+  }
+  return found;
+}
+
+/** "the user" or "you", for an author. */
+const who = (author: string) => (author === "friend" ? "you" : "the user");
+
+/** How long ago, roughly: "just now", "5 minutes ago", "2 days ago". */
+function ago(iso: string, now = Date.now()): string {
+  const minutes = Math.max(0, Math.round((now - new Date(iso).getTime()) / 60_000));
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
 
 // -------------------------------------------------------------------- tools
 
@@ -615,6 +652,75 @@ const TOOLS: ToolDefinition[] = [
       const thread = threadIn(store, channel, need(args, "thread"));
       store.comments.resolve(thread.id);
       return { result: { resolved: true }, summary: `resolved a comment thread on "${thread.quote.slice(0, 60)}"` };
+    },
+  },
+
+  // ------------------------------------------------------ your messages
+  {
+    name: "edit_my_message",
+    description:
+      "Change one of your own earlier messages in this channel: fix a mistake, or say it better. Every version is kept in its history. Find it by quoting a few words from it; leave the quote out for your latest message.",
+    parameters: object(
+      {
+        quote: str("A few words copied exactly from your message. Leave out for your latest one."),
+        new_text: str("The message's new text, in full."),
+      },
+      ["new_text"],
+    ),
+    available: (ctx) => ctx.mode === "post",
+    run: (ctx, args) => {
+      const message = findMessage(ctx, maybe(args, "quote"), true);
+      const text = need(args, "new_text");
+      ctx.store.editMessage(message.id, text, "friend");
+      return { result: { edited: true }, summary: `edited their message "${snip(message.content)}"` };
+    },
+  },
+  {
+    name: "delete_my_message",
+    description:
+      "Remove one of your own earlier messages in this channel from the chat. It stays in the message's history. Find it by quoting a few words from it; leave the quote out for your latest message.",
+    parameters: object({ quote: str("A few words copied exactly from your message. Leave out for your latest one.") }),
+    available: (ctx) => ctx.mode === "post",
+    run: (ctx, args) => {
+      const message = findMessage(ctx, maybe(args, "quote"), true);
+      ctx.store.deleteMessage(message.id, "friend");
+      return { result: { deleted: true }, summary: `deleted their message "${snip(message.content)}"` };
+    },
+  },
+  {
+    name: "read_message_history",
+    description:
+      "See everything that happened to a message in this channel: each version of its text (who wrote it, and when), and, for a regenerated reply, the earlier replies it replaced. Find it by quoting a few words from it; leave the quote out for the latest message.",
+    parameters: object({ quote: str("A few words copied exactly from the message. Leave out for the latest one.") }),
+    run: (ctx, args) => {
+      const message = findMessage(ctx, maybe(args, "quote"), false);
+      const history = ctx.store.history(message.id);
+      return {
+        result: {
+          written_by: who(message.author),
+          written: ago(message.createdAt),
+          text_now: message.content,
+          versions: history.revisions.length
+            ? history.revisions.map((r) => ({ by: who(r.author), when: ago(r.createdAt), text: r.content }))
+            : "It has never been edited.",
+          replaced_replies: history.alternates.map((m) => ({ written: ago(m.createdAt), ...(m.profile ? { by_profile: m.profile } : {}), text: m.content })),
+        },
+        summary: `read the history of "${snip(message.content)}"`,
+      };
+    },
+  },
+  {
+    name: "read_interventions",
+    description:
+      "Read the log of what the user has done that affects you: editing, deleting or regenerating your messages, and changing who you are or how you write. Newest first.",
+    parameters: object({ count: { type: "integer", description: "How many entries, newest first (default 20, at most 100)." } }),
+    run: ({ store }, args) => {
+      const count = args.count === undefined || args.count === null ? 20 : Math.min(100, Math.max(1, wholeNumber(args.count, "count")));
+      const entries = store.interventions.recent(count);
+      return {
+        result: entries.length ? entries.map((e) => ({ when: ago(e.at), what: e.summary })) : { entries: [], note: "Nothing yet." },
+        summary: "read the intervention log",
+      };
     },
   },
 

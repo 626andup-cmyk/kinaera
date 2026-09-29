@@ -88,7 +88,11 @@ describe("reactions", () => {
     const before = app.store.revision;
     app.store.reactions.add(m.id, "friend", "👋");
     expect(app.store.revision).toBeGreaterThan(before);
+    // Deleting the message leaves a tombstone, reactions and all (for its
+    // history); deleting the channel takes them with it.
     app.store.deleteMessage(m.id);
+    expect(app.store.reactions.forMessage(m.id)).toHaveLength(1);
+    app.store.deleteChannel(m.channelId);
     expect(app.store.reactions.forMessage(m.id)).toEqual([]);
   });
 });

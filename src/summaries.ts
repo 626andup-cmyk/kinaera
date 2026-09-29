@@ -183,6 +183,7 @@ export class Summaries {
     const nextBreak = this.db
       .query(
         `SELECT id FROM messages WHERE channel_id = $channelId AND kind = 'scene_break' AND seq > $seq
+            AND deleted_at IS NULL AND superseded_by IS NULL
           ORDER BY seq LIMIT 1`,
       )
       .get({ channelId, seq }) as { id: string } | null;
