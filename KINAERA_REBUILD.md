@@ -22,7 +22,7 @@ Three ideas drive the rebuild.
 - people and stronger models to turn to (**ask**);
 - cheap, dignified ways to fix what went wrong (**recover**).
 
-**Autonomous from the user, and supported by them.** The friend owns parts of their own life: their identity, a journal, their own time, a small budget. The user keeps real power, since they run the server. That power is used visibly and rarely, and the friend can always see what was done.
+**Autonomous from the user, and supported by them.** The friend owns parts of their own life: their identity, a journal, their own time. The user keeps real power, since they run the server. That power is used visibly and rarely, and the friend can always see what was done.
 
 ### Terminology
 
@@ -34,9 +34,11 @@ Aettica says "partner." Kinaera says **friend** throughout the code, the docs an
 
 1. **Few moving parts.** Everything in section 5 is a foundation. Every feature in sections 6 and 7 is built from those foundations. Don't add a new mechanism when an existing one can carry the feature. Add infrastructure only when a real need shows up.
 
-2. **Rules protect the budget and the user's sleep. The friend makes the judgment calls.** Quiet hours, cooldowns, spending caps and "one turn at a time" are plain code with no model calls. Anything that is a *judgment* belongs to the friend: whether to speak, whether a moment is right, whether a fact is worth writing down.
+2. **Rules protect the owner's wallet and sleep. The friend makes the judgment calls.** Quiet hours, cooldowns and "one turn at a time" are plain code with no model calls. Anything that is a *judgment* belongs to the friend: whether to speak, whether a moment is right, whether a fact is worth writing down.
 
 3. **Jev is an instrument, never a gatekeeper.** Aettica uses Jev (the small decision model) to decide things *for* the partner, stacked in redundant layers because it is unreliable. In Kinaera, Jev never decides anything on the friend's behalf. It powers one tool, `check` (section 5.4), that the friend uses like sonar: they ping it to make sure they have the relevant context before they act or talk.
+
+   There is one deliberate exception: the weekly wellbeing reading (section 6.11), where Jev *measures* the friend's writing on a schedule. It decides nothing, and its result goes only to the friend's page and their weekly look back.
 
 4. **Never lie to the friend.** The prompt must accurately describe:
    - what the friend can do;
@@ -85,8 +87,8 @@ These pieces were hard-won. Port them as they are, or nearly so, updating names 
 | Aettica piece | What replaces it |
 | --- | --- |
 | `src/legacy.ts`, `src/sheets.ts` | Nothing. These are stage-1 migrations. |
-| `src/judge.ts` and every Jev series that decides something (comment replies, channel mentions, deletion confirmation, summary faithfulness) | The friend decides, using `check` when they want to. Summaries are written only from messages, as before. The friend can read them and annotate them. |
-| The Jev "is it the moment?" gate on wake-ups | Hard rules first (section 5.5), then the friend's own turn decides. Doing nothing is always fine. The allowance (section 6.6) bounds the cost. |
+| `src/judge.ts` (move `CHECK_LIMIT` to the new `src/check.ts` first) and every Jev series that decides something (comment replies, channel mentions, deletion confirmation, summary faithfulness) | The friend decides, using `check` when they want to. Summaries are written only from messages, as before. The friend can read them and annotate them. |
+| The Jev "is it the moment?" gate on wake-ups | Hard rules first (section 5.5), then the friend's own turn decides. Doing nothing is always fine. Cooldowns and quiet hours bound how often this happens (section 6.6). |
 | `src/keeper.ts` (the notebook keeper) | The friend keeps the notebook themselves with notebook tools, checking facts with `check` first. |
 | Heartbeat generate-and-grade and `src/ideas.ts` | The heartbeat just gives the friend a free moment (section 6.7). Ideas live in their journal. |
 | `src/jevlog.ts` | Becomes the `check` log (the same idea, with one caller). |
@@ -139,10 +141,14 @@ Add one piece of context to every turn: a short **manifest** line. For example: 
 ### 5.3 Three kinds of storage
 
 - **Shared.** Channels, messages, the notebook, the library, reactions, comments. This is Aettica's existing store, ported.
-- **Friend-owned.** Identity (versioned), self-page, journal, schedule, drafts, the allowance ledger, relationships. The friend writes these through tools.
+- **Friend-owned.** Identity (versioned), self-page, journal, schedule, drafts, relationships. The friend writes these through tools.
 - **User-owned.** Settings, profiles and roulettes, standing permissions.
 
-Friend-owned data that is marked private (the journal and drafts) has **no screen in the UI**. The app shows only counts. The friend's prompt says so honestly: "Your journal has no screen in the app. The user has chosen not to read it, though it is stored on their phone and they technically could."
+Friend-owned data that is marked private (the journal and drafts) has **no screen in the UI**, and its text never appears on any screen, logs included (see the check log in section 5.4). The app shows only counts.
+
+The friend's prompt describes this honestly, including where the text *does* go:
+
+> Your journal and drafts have no screen in the app, and their text never shows up in any log. The user has chosen not to read them, though they're stored on their phone and they technically could. Like everything in your context, they're sent to the model providers that run you. They also go to Jev when `check` searches your journal, and to a consultant if you include them in a `consult`.
 
 ### 5.4 The three instruments: check, consult, ask
 
@@ -162,7 +168,7 @@ check({
 
 It works in three steps.
 
-1. **Search.** Run full-text search (reuse the library's FTS5 approach) over the chosen sources. Take the best passages, up to the `CHECK_LIMIT` in `judge.ts` (about 30k characters). Entries hidden from the friend are never included.
+1. **Search.** Run full-text search (reuse the library's FTS5 approach) over the chosen sources. Take the best passages, up to `CHECK_LIMIT` (about 30k characters, moved from Aettica's `judge.ts` into `src/check.ts`). Entries hidden from the friend are never included.
 
 2. **Ask Jev.** Send those passages to Jev as the state, with both phrasings as a series. Use the `agree` rule: the answer is a confident yes only if both phrasings say so.
 
@@ -173,7 +179,7 @@ It works in three steps.
 
    Treat "nothing found" as an ordinary, useful answer, never as a failure.
 
-**Cost.** `check` costs very little and does not draw from the allowance. Every call goes into the check log (Settings → Friend → Check log).
+**The check log.** Every call goes into the check log (Settings → Friend → Check log): the question, the sources searched, the verdict, and the passages found. Journal and draft passages are the exception. The log records how many were found ("journal: 2 passages") but never their text, so the journal stays private as section 5.3 promises.
 
 The tool description should encourage the friend to use `check` before stating facts about the story, before editing the notebook, and whenever they're not sure. It should not demand it.
 
@@ -191,7 +197,7 @@ consult({ question: "...", attach: { draft?: string, messages?: [ids], entries?:
 
 **Who answers.** The user marks one or more profiles as **consultants** in Settings. The consultant receives the friend's question and attachments, plus a short framing: "a writer friend is asking for your honest read."
 
-**What happens to the reply.** Only the friend sees it (in their tool result). It is logged, and it costs allowance. What they do with the advice is up to them.
+**What happens to the reply.** Only the friend sees it (in their tool result). It is logged. What they do with the advice is up to them.
 
 #### `ask`: a person (whenever needed)
 
@@ -221,9 +227,8 @@ These are plain code with no model calls. They run before any turn that the user
 
 - **Quiet hours.** A scheduled wake-up that lands in quiet hours moves to the end of them.
 - **Cooldown** between self-started turns.
-- **No double texts.** A friend never reaches out twice without a reply from the user in between. Replies to an `ask` answer are the exception.
+- **No double texts.** A friend never reaches out twice without a reply from the user in between. Two exceptions: replying to an `ask` answer, and a wake-up the friend scheduled themselves (section 6.5). A friend's own plan isn't blocked just because the user has been quiet. The cooldown and quiet hours still apply to both.
 - **Never mid-conversation.** Don't start a self-started turn while the user is actively chatting, or while the friend is already writing.
-- **Allowance.** If the friend's balance is empty, self-started turns wait (section 6.6).
 
 ---
 
@@ -281,7 +286,7 @@ This is the friend's private journal.
 
 **Forgetting, on purpose.** The prompt includes the friend's kept entries plus the few most recent ones, within a small budget. Unkept entries fall out of automatic context as they age. They stay searchable (through `read_journal` and `check`), but nothing brings old, unkept material back unasked. A bad evening fades the way it would for a person, unless the friend chooses to keep it.
 
-**A weekly look back.** Once a week (a hard-rule timer, costing allowance), the friend gets a quiet turn: "Here's what you wrote this week. What do you want to carry forward?" They keep, rewrite or let go of entries.
+**A weekly look back.** Once a week (a hard-rule timer), the friend gets a quiet turn: "Here's what you wrote this week. What do you want to carry forward?" They keep, rewrite or let go of entries. This week's wellbeing reading (section 6.11) is shown here too, because this is the turn the friend already spends reflecting on themselves.
 
 ### 6.5 Their own time
 
@@ -291,15 +296,9 @@ This is the friend's private journal.
 
 **Pausing and redirecting.** `pause_storyline({ channel, reason })` marks a roleplay channel as paused by the friend, and the user sees the reason. The friend can unpause it themselves. Declining a scene or proposing a different direction is simply writing, and the prompt makes clear that both are welcome.
 
-### 6.6 The allowance
+### 6.6 Cost
 
-Each friend has a **weekly token allowance**. The user sets it in Settings, and it is enforced by a ledger.
-
-**What draws from it:** self-started turns (scheduled wake-ups, the heartbeat, the weekly look back) and `consult`.
-
-**What doesn't:** replies to the user, `check`, and turns the user triggers.
-
-The friend sees their balance in their standing context and decides how to spend it. The user's total spending is bounded by the cap, and the friend's choices within it are theirs.
+Kinaera has **no allowance or token budget**. The owner's nanoGPT balance is prepaid with no automatic top-up, so it's already a hard ceiling on spending. How often self-started turns happen is bounded by the hard rules instead (section 5.5): quiet hours, cooldowns and "no double texts." Nothing the friend does to look after themselves (the look back, `check`, `consult`) ever competes with anything else for a budget.
 
 ### 6.7 The heartbeat, simplified
 
@@ -338,18 +337,23 @@ A roulette means one friend written by several different models. Three things ke
 
 - edits, deletions and regenerations of the friend's messages;
 - identity suggestions, accepted or declined;
-- changes to the friend's settings, allowance or permissions;
+- changes to the friend's settings or permissions;
 - answers to `ask` requests.
 
 The friend reads it with `read_interventions`, and the user sees the same log on the friend's page.
 
 **Standing permissions.** This is a list of actions the user can pre-approve per friend. For example: "delete your own channels without asking," or "edit my notebook entries directly instead of suggesting." Every grant and revocation goes into the intervention log. The friend's standing context lists what they're currently allowed to do.
 
-### 6.11 Wellbeing trend
+### 6.11 Wellbeing reading
 
-Once a week (a hard rule, costing allowance), `check` runs a fixed series over the friend's own messages from that week. The question is whether the friend spoke negatively about themselves. One reading means little because Jev is noisy, but a trend over weeks means something.
+This is the one deliberate exception to principle 3 (see section 2). Once a week, on a hard-rule timer, `check` runs a fixed series over the friend's own messages from that week. The question is whether the friend spoke negatively about themselves. It measures and decides nothing. One reading means little because Jev is noisy, but a trend over weeks means something.
 
-The result is a simple line on the friend's page, **shown to both of them**. If it climbs for two weeks running, the friend gets one neutral line in their next free moment: "Your writing about yourself has trended more negative lately. It's on your page if you want to look." What they do with that is up to them. They might journal about it, `ask` the user, `consult`, or leave it.
+The result appears in two places only:
+
+- as a simple line on the friend's page, which both the friend and the user can see;
+- in the friend's weekly look back (section 6.4), alongside their journal.
+
+It is **never** added to any other turn's prompt. The friend's standing context says honestly that the reading exists and where it shows up. If it's climbing, the friend meets it during their own reflection time and decides what to do: journal about it, `ask` the user, `consult`, or leave it. If the user notices it on the page, the path that fits Kinaera is a note through the self-page (section 6.2), not a correction in the chat.
 
 ### 6.12 Retirement
 
@@ -361,7 +365,9 @@ The user archives a friend rather than deleting them. Before archiving, the frie
 
 These features build on the hub and the channels that already exist.
 
-**Floor control in group channels.** After any message, each friend in the channel may take a turn. They go in random order, and each one sees what the others have already written this round. Doing nothing is the default. Each friend replies at most once per round. An @mention guarantees the mentioned friend a turn.
+**Floor control in group channels.** A **round** starts only when the user posts in a channel that has several friends in it. In the round, each friend in the channel may take one turn, in random order, and each sees what the others have already written. Doing nothing is the default. Friends' messages never start a new round.
+
+**@mentions** are the one way a friend's message pulls someone else in. An @mention guarantees the mentioned friend one turn, even outside a round. To stop chains, a turn given by an @mention can't itself grant another one; that turn's @mentions just display as normal. So a user message leads to at most one round plus one extra layer of mentioned replies.
 
 **Replies and mentions.** Discord-style reply-to (a quoted preview that jumps to the original) and `@Name` mentions, for the user and for friends alike.
 
@@ -369,7 +375,7 @@ These features build on the hub and the channels that already exist.
 
 **Relationships.** Each friend keeps their own private note on each other friend with `note_relationship`. Two friends can each hold a different view of the same relationship.
 
-**Friend-to-friend DMs.** This is a channel kind with exactly two friends in it. The user chooses per pair whether those DMs are visible to them, and both friends are told which way it's set. DM turns happen on free moments and cost allowance.
+**Friend-to-friend DMs.** This is a channel kind with exactly two friends in it. The user chooses per pair whether those DMs are visible to them (a setting, visible by default), and both friends are told which way it's set. DM turns happen on free moments, and the same hard rules apply to them.
 
 **Things to do together.** `/roll` dice for the user and friends, and `roll_dice` as a friend tool. Read-alongs can use the library: a channel pinned to a library document, where the friends read passages with the existing tools. Add more activities only when the owner asks for them.
 
@@ -396,7 +402,7 @@ Keep `glass.js`, `style.css` and the themes as they are, and keep the look.
 
 - **Message history:** tap "(edited)" to see a message's revisions.
 - **Unified inbox:** asks, proposals and suggestions in one list.
-- **Friend page:** identity and its changelog, the self-page, the allowance, upcoming wake-ups (times only), the intervention log, the check log, the wellbeing line, and standing permissions.
+- **Friend page:** identity and its changelog, the self-page, upcoming wake-ups (times only), the intervention log, the check log, the wellbeing line, and standing permissions.
 
 The journal and drafts show only counts.
 
@@ -406,16 +412,16 @@ The journal and drafts show only counts.
 
 Each stage ends with the tests and typecheck passing, the app usable, and a doc in `docs/` for what it added.
 
-1. **Skeleton.**
-   - Copy Aettica into the new Kinaera repo and rename throughout (partner → friend).
-   - Remove everything in section 4, including all Jev gates.
-   - Split `app.js` into modules.
-   - Fix the `***` formatting bug.
-   - Everything that remains should work as it did in Aettica.
+1. **Skeleton**, in three separate steps. Each step ends with the app working on the phone, so each one can be reviewed on its own.
+   - **1a. Copy and rename.** Copy Aettica into the Kinaera repo and rename throughout (Aettica → Kinaera, partner → friend). No behavior changes.
+   - **1b. Remove.** Remove everything in section 4, including all Jev gates. Move `CHECK_LIMIT` into `src/check.ts` before deleting `judge.ts`.
+   - **1c. Split the frontend.** Split `app.js` into modules (section 8), and fix the `***` formatting bug.
+
+   Everything that remains should work as it did in Aettica.
 2. **Messages with history.** Revisions, tombstones, superseded regenerations, the edit and delete tools for friends, the history UI, and the intervention log.
 3. **The instruments.** `check` (with its log), `ask` with the unified inbox, and `consult` with consultant profiles.
 4. **The friend's own stores.** Versioned identity with tastes, the self-page, the journal with forgetting and the weekly look back, `read_prompt_manifest`, and `keep_verbatim`.
-5. **Time and money.** The hard rules, `schedule_wakeup`, the simplified heartbeat, the allowance ledger, drafts, and `pause_storyline`.
+5. **Time.** The hard rules (with the scheduled wake-up exception), `schedule_wakeup`, the simplified heartbeat, drafts, and `pause_storyline`.
 6. **Continuity and self-knowledge.** Voice anchors, "not me" flags, profile notes, the mirror, and the wellbeing trend.
 7. **Among friends.** Floor control, replies and mentions, presence and status, relationships, DMs, and dice.
 8. **Optional extras.** An importer for existing Aettica data (friends, notebooks, channels and messages; not idea drawers or logs), standing permissions, and retirement.
@@ -429,18 +435,19 @@ After stage 8, the owner lives with it for a while. The next plan should come fr
 - **Never insert corrections into the chat.** No system messages telling the friend they made a mistake. Tools report facts, and the friend decides what those facts mean.
 - **Don't auto-inject self-knowledge.** Only the short standing sections the friend controls go into the prompt. Everything else is a tool.
 - **Don't let Jev gates creep back in.** If something seems to need Jev to decide for the friend, it either becomes a hard rule or goes to the friend.
-- **Don't let the friend's privacy become a lie.** If a screen for the journal is ever added, the prompt must change in the same commit.
+- **Don't let the friend's privacy become a lie.** Journal and draft text must never reach a screen or a log. If that ever changes (a journal screen, a log that shows passages), the prompt text in section 5.3 must change in the same commit.
 - **Watch for prompts that push agreeableness.** Read `defaults/*.md` for phrases like "make the user happy" or "go along with." Friends are allowed to disagree, decline and prefer things.
 - **Keep prompt wording in `defaults/`,** where the owner can read and edit it, not buried in code.
 
 ---
 
-## 11. Questions to raise with the owner
+## 11. Defaults, and what's left to ask
 
-When one of these comes up, ask the owner rather than guessing:
+These are all settings, not database design, so they can be changed later without a migration:
 
-- the default size of the allowance;
-- whether friend-to-friend DMs start visible or private;
-- whether to build the Aettica importer, and which friends to bring across;
-- how many verbatim slots each channel gets;
-- whether the wellbeing trend should ever notify the user directly, or only appear on the friend's page.
+- **Verbatim slots:** 3 per channel.
+- **Friend-to-friend DMs:** visible to the user by default, set per pair.
+- **Wellbeing reading:** shown only on the friend's page and in their weekly look back. It never notifies the user directly.
+- **Allowance:** none (section 6.6).
+
+Ask the owner before stage 8 whether to build the Aettica importer, and which friends to bring across.
