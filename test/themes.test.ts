@@ -172,10 +172,9 @@ describe("ThemeLibrary", () => {
       ["refraction", "--refraction"],
       ["dispersion", "--dispersion"],
       ["rain", "--rain"],
-      ["parallax", "--parallax"],
     ]);
     const copy = library.create("My Rain", "rainy-window");
-    expect(library.info(copy.id).options).toHaveLength(6);
+    expect(library.info(copy.id).options).toHaveLength(5);
     expect(library.details(copy.id).files).toEqual([
       "city-drops.svg",
       "city.svg",
