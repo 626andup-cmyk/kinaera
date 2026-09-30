@@ -11,6 +11,7 @@
 import { $, api, hideFormError, showFormError, state } from "./core.js";
 import { formatTime } from "./format.js";
 import { openFriend, paintAvatar } from "./friend-page.js";
+import { openChannel } from "./channels.js";
 
 /** The page as the server last sent it (GET /api/friend-page). */
 let page = null;
@@ -22,6 +23,7 @@ export async function openSelf() {
   paintAvatar($("self-avatar"), { name: s.friendName, avatar: s.friendAvatar, color: s.friendColor });
   $("self-title").textContent = s.friendName;
   if (!dialog.open) dialog.showModal();
+  keepFresh();
   try {
     page = await api("GET", "/api/friend-page");
     renderSelf();
@@ -131,15 +133,57 @@ function renderSelf() {
       ? `${friend} hasn't written in their journal yet. It's private: only how many entries there are is shown here.`
       : `${entries} ${entries === 1 ? "entry" : "entries"}, ${kept} kept in front of them. It's private: only the counts are shown here.`;
 
-  // Orientation.
+  renderOrientation();
+}
+
+/** Where orientation stands, in words: now, what's holding it, and how the last one went. */
+function renderOrientation() {
+  const friend = state.settings.friendName;
   const o = page.orientation;
-  const last = { accepted: `${friend} took you up on your last invitation.`, declined: `${friend} passed on your last invitation.` }[o.lastInvitation] ?? "";
-  $("self-orientation").textContent = o.pending
-    ? `An orientation is waiting to start in ${friend}'s practice channel (quiet hours and the cooldown still apply).`
-    : o.invited
-      ? `You've invited ${friend}: they'll say yes or no on their next turn.`
-      : `A turn of their own for trying their tools and finding what suits them. You can invite ${friend}; they can say no. ${last}`.trim();
-  $("self-invite").disabled = o.invited || o.pending;
+  const lines = [];
+  if (o.running) lines.push(`${friend} is in an orientation right now, in #practice.`);
+  else if (o.pending) {
+    lines.push(`${friend} is starting an orientation in #practice. It's checked every minute.`);
+    if (o.held) lines.push(`Not yet, because: ${o.held}`);
+  } else if (o.invited) {
+    lines.push(`You've invited ${friend}. They answer on their next turn (it gives them one soon, if the hard rules allow). Starting one is a yes; not starting one then is a no.`);
+  } else {
+    lines.push(`A turn of their own for trying their tools and finding what suits them. You can invite ${friend}; they can say no.`);
+    const answer = { accepted: `${friend} said yes to your last invitation.`, declined: `${friend} passed on your last invitation (they didn't start one on the turn after it).` }[o.lastInvitation];
+    if (answer) lines.push(answer);
+  }
+  if (o.last) {
+    const how = { posted: "wrote in #practice", quiet: "didn't write anything there", failed: "failed" }[o.last.outcome] ?? o.last.outcome;
+    lines.push(`Last orientation: ${formatTime(o.last.at)}, ${how}.${o.last.outcome === "failed" ? ` ${o.last.detail}` : ""}`);
+  } else {
+    lines.push(`${friend} hasn't had an orientation yet.`);
+  }
+  const box = $("self-orientation");
+  box.replaceChildren(
+    ...lines.map((line) => {
+      const p = document.createElement("span");
+      p.className = "self-orientation-line";
+      p.textContent = line;
+      return p;
+    }),
+  );
+  $("self-invite").disabled = o.invited || o.pending || o.running;
+  $("self-open-practice").hidden = !o.practiceId;
+}
+
+/** While the page is open, keep orientation's status fresh (it changes on its own). */
+let refresher = null;
+function keepFresh() {
+  clearInterval(refresher);
+  refresher = setInterval(async () => {
+    if (!$("self-dialog").open) return clearInterval(refresher);
+    try {
+      page = await api("GET", "/api/friend-page");
+      renderOrientation();
+    } catch {
+      // Try again next time.
+    }
+  }, 10_000);
 }
 
 /** A suggestion of yours still waiting, with a Withdraw button. */
@@ -204,3 +248,7 @@ $("self-settings").addEventListener("click", () => {
 $("self-suggest-send").addEventListener("click", suggestIdentity);
 $("self-note-send").addEventListener("click", suggestNote);
 $("self-invite").addEventListener("click", invite);
+$("self-open-practice").addEventListener("click", () => {
+  $("self-dialog").close();
+  openChannel(page.orientation.practiceId);
+});

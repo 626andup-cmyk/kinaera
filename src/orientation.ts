@@ -18,7 +18,7 @@
  * **The look back**, once a week: a quiet turn with what they wrote in their
  * journal that week, to keep, rewrite or let go of entries.
  *
- * Both are queued here and started by a timer (`Rhythms`), through the hard
+ * Both are queued here and started by a timer (`Rhythms`, every minute), through the hard
  * rules in src/wakeups.ts: quiet hours and the cooldown apply, but not "no
  * double texts" or "never mid-conversation", since they message no one.
  */
@@ -31,6 +31,8 @@ import { wording } from "./wording.ts";
 const PENDING = "orientation.pending";
 const INVITED = "orientation.invited";
 const LOOKBACK_LAST = "lookback.last";
+/** Why the waiting orientation hasn't started yet (a hard rule), for the friend page. */
+const HELD = "orientation.held";
 
 /** How often the look back comes round. */
 export const LOOKBACK_DAYS = 7;
@@ -38,6 +40,11 @@ export const LOOKBACK_DAYS = 7;
 /** Queue an orientation (when they're made, or when they ask). */
 export function queueOrientation(store: Store, focus?: string): void {
   store.appState.set(PENDING, JSON.stringify({ focus: focus?.trim().slice(0, 200) || null, at: new Date().toISOString() }));
+}
+
+/** Why the waiting orientation hasn't started yet, if a rule is holding it. */
+export function orientationHeld(store: Store): string | null {
+  return pendingOrientation(store) ? store.appState.get(HELD) : null;
 }
 
 /** The orientation waiting to start, if any. */
@@ -117,7 +124,7 @@ export class Rhythms {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  start(checkMs = 5 * 60_000): void {
+  start(checkMs = 60_000): void {
     this.stop();
     this.timer = setInterval(() => void this.tick(), checkMs);
     void this.tick();
@@ -140,6 +147,7 @@ export class Rhythms {
         // Stopped by a rule (quiet hours, the cooldown): it waits. (One
         // asked for during it is kept for later.)
         if (result.outcome !== null && pendingOrientation(this.store)?.at === orientation.at) this.store.appState.set(PENDING, null);
+        this.store.appState.set(HELD, result.outcome === null ? result.detail : null);
         return result;
       }
       // The first look back is a week after the journal starts being kept here.

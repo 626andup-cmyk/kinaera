@@ -59,7 +59,7 @@ All of this is a first draft, and you're expected to revise it. It reflects one 
 
 ## invitation
 
-The user invited you to an orientation (see "Why you're up" if you're in one). Start one with start_orientation if you'd like. If you don't this turn, that's taken as a no for now, and you can start one whenever you like.
+The user invited you to an orientation: a turn of your own in your practice channel, for trying your tools and finding what suits you. If you'd like one, call start_orientation this turn (saying yes in words doesn't start it). If you don't, that's taken as a no for now, and you can start one yourself whenever you like.
 
 ## new-profile
 

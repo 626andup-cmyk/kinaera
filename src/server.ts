@@ -129,7 +129,7 @@ import { describeSeeds, randomFriend, rollSeeds } from "./rng.ts";
 import { keepAwake, Presence, TermuxNotifier, type Notifier } from "./notify.ts";
 import { DEFAULT_THEME, ThemeLibrary } from "./themes.ts";
 import { ENTRY_TEMPLATES } from "./notebook.ts";
-import { invited, inviteToOrientation, noteNewProfiles, pendingOrientation, Rhythms } from "./orientation.ts";
+import { invited, inviteToOrientation, noteNewProfiles, orientationHeld, pendingOrientation, Rhythms } from "./orientation.ts";
 import type { CastMember, Channel, Message, Settings } from "./types.ts";
 import { PermissionError } from "./errors.ts";
 import {
@@ -369,12 +369,27 @@ export function createApp(config: Config): App {
       history: store.identity.history(),
       selfPage: store.selfPage.view(),
       journal: store.journal.counts(),
-      orientation: {
-        invited: invited(store),
-        pending: pendingOrientation(store) !== null,
-        lastInvitation: store.appState.get("orientation.invite-result"),
-      },
+      orientation: orientationState(),
       waiting: waitingOnFriend(),
+    };
+  }
+
+  /**
+   * Where orientation stands, so you can tell: invited (and waiting for
+   * their answer), waiting to start (and what's holding it), running now,
+   * and how the last one went.
+   */
+  function orientationState() {
+    const practice = store.practiceChannel();
+    const last = store.wakeLog.recent(300).find((w) => w.reason === "orientation") ?? null;
+    return {
+      invited: invited(store),
+      pending: pendingOrientation(store) !== null,
+      held: orientationHeld(store),
+      running: practice ? friend.isBusy(practice.id) : false,
+      practiceId: practice?.id ?? null,
+      last: last ? { at: last.at, outcome: last.outcome, detail: last.detail } : null,
+      lastInvitation: store.appState.get("orientation.invite-result"),
     };
   }
 
@@ -474,7 +489,7 @@ export function createApp(config: Config): App {
           // number that changes with any message, and each channel's newest.
           revision: store.revision,
           activity: Object.fromEntries(
-            store.listChannels().map((c) => {
+            [...store.listChannels(), ...(store.practiceChannel() ? [store.practiceChannel()!] : [])].map((c) => {
               const last = store.lastMessage(c.id);
               return [c.id, last ? { lastId: last.id, author: last.author, at: last.createdAt } : null];
             }),
@@ -1111,6 +1126,9 @@ export function createApp(config: Config): App {
       pattern: "/api/orientation/invite",
       handler: () => {
         inviteToOrientation(store);
+        // They answer on a turn of their own, soon, rather than whenever you
+        // next write (if the hard rules allow; otherwise on their next turn).
+        suggested();
         return json(friendPage());
       },
     },

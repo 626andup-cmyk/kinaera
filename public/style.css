@@ -2665,3 +2665,8 @@ button.attach-chip {
 [data-channel-kind="practice"] .message-actions {
   display: none;
 }
+
+.self-orientation-line {
+  display: block;
+  margin-bottom: 4px;
+}

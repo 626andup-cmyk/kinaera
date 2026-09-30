@@ -63,10 +63,19 @@ Every friend has a **practice channel**. It sits apart at the bottom of the side
 
 - **when they're made**: a new friend's first turn of their own;
 - **when they ask**: `start_orientation({ focus? })`;
-- **when you invite them** (their page): they're told on their next turn. Starting one is a yes; not starting one that turn is a no, shown on their page;
+- **when you invite them** (their page): inviting gives them a turn soon (like a suggestion to review, if the hard rules allow), where they're told. Calling `start_orientation` then is a yes; not calling it that turn is a no;
 - **when a profile joins a roulette**: they're told once that a new model may be writing as them, and offered an orientation. It isn't started for them.
 
-Asks made during an orientation are marked "(orientation)" in your inbox. Orientation and the look back are started by a timer (`Rhythms`, checked every five minutes). They follow quiet hours and the cooldown, but not "no double texts" or "never mid-conversation", because they message no one. No phone notification is sent for them.
+Asks made during an orientation are marked "(orientation)" in your inbox. Orientation and the look back are started by a timer (`Rhythms`, checked every minute). They follow quiet hours and the cooldown, but not "no double texts" or "never mid-conversation", because they message no one. Their cooldown counts from their last turn of their own, not from wake-ups that wrote to you, so an orientation doesn't wait an hour behind the turn where they accepted. No phone notification is sent for them.
+
+**Telling where it stands.** Their page says, and keeps it up to date while open:
+
+- whether they're invited and haven't answered yet;
+- whether they've said yes and it's waiting to start, and what's holding it (quiet hours, the cooldown, a profile without tools);
+- whether it's running now;
+- how the last one went and when, plus what they said to your last invitation.
+
+**Open #practice** takes you there. The practice channel also gets an unread dot when they write in it, and orientations are listed under Settings → Recent wake-ups.
 
 Drafts and scheduling your own wake-ups are part of the guide's orientation, but they arrive in stage 5.
 

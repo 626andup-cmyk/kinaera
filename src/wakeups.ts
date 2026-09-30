@@ -47,7 +47,7 @@ import type { WakeContext, WakeReason } from "./prompt.ts";
 import type { Store } from "./store.ts";
 import { splitScenes } from "./summaries.ts";
 import type { Channel, Message } from "./types.ts";
-import { orientationGuide } from "./orientation.ts";
+import { invited, orientationGuide } from "./orientation.ts";
 import { toolSpecs } from "./tools.ts";
 
 /** What can wake your friend up from outside. */
@@ -282,8 +282,11 @@ export class Wakeups {
     const skip = (why: string) => ({ skip: why });
     if (reason === "lookback" && settings.wakeups === "off") return skip("Your friend doesn't take turns on their own at this chattiness.");
     if (inQuietHours(now, settings.quietStart, settings.quietEnd)) return skip("It's quiet hours.");
-    const lastTurn = store.wakeLog.lastTurnAt();
-    if (lastTurn && now.getTime() - lastTurn.getTime() < settings.wakeCooldownMinutes * 60_000) return skip("It's too soon after the last wake-up.");
+    // The cooldown counts from their last turn of their own (orientation or
+    // look back), not from wake-ups that wrote to you: an orientation you
+    // just invited them to shouldn't wait an hour behind that invitation.
+    const lastTurn = store.wakeLog.lastTurnAt(OWN_TIME as WakeReason[]);
+    if (lastTurn && now.getTime() - lastTurn.getTime() < settings.wakeCooldownMinutes * 60_000) return skip("It's too soon after their last turn of their own.");
     const channel = store.ensurePractice();
     if (this.friend.isBusy(channel.id)) return skip("Your friend is writing there already.");
     if (!pickProfile(store, channel).supportsTools) return skip("The profile that writes there can't use tools.");
@@ -362,6 +365,7 @@ export function wakeContext(store: Store, reason: WakeReason, sinceMs: number | 
   for (const n of store.selfPage.pendingNotes().filter((n) => n.source === "user")) {
     waiting.push(`The user's note for your self-page ("${n.text.slice(0, 120)}") is waiting for you to accept or decline.`);
   }
+  if (invited(store)) waiting.push("The user invited you to an orientation (see Notices): yes or no is up to you.");
   for (const item of store.inbox.open()) {
     waiting.push(item.kind === "ask" ? `Your ask ("${item.text.slice(0, 120)}") is waiting for the user.` : `Your proposal to delete #${item.targetName} is waiting for the user.`);
   }

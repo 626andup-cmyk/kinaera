@@ -98,6 +98,8 @@ const WAKE_REASONS = {
   review: "A suggestion to review",
   heartbeat: "Heartbeat",
   answer: "You answered an ask",
+  orientation: "Orientation",
+  lookback: "The weekly look back",
 };
 const WAKE_OUTCOMES = { posted: "wrote to you", quiet: "didn't write", failed: "failed" };
 

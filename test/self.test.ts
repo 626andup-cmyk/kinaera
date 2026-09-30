@@ -303,6 +303,19 @@ describe("orientation", () => {
     expect(systemPrompt()).not.toContain("A new profile joined");
   });
 
+  test("a waiting orientation says what's holding it, and doesn't wait behind wake-ups that wrote to you", async () => {
+    app.store.updateSettings({ quietStart: 11, quietEnd: 13 });
+    await rhythms.tick();
+    expect(pendingOrientation(app.store)).not.toBeNull();
+    expect((await call("GET", "/api/friend-page")).data.orientation).toMatchObject({ pending: true, held: "It's quiet hours." });
+    app.store.updateSettings({ quietStart: -1, quietEnd: -1 });
+    // A wake-up that wrote to you a minute ago doesn't hold it up.
+    app.store.wakeLog.add({ at: new Date(now.getTime() - 60_000).toISOString(), reason: "review", outcome: "posted", channelId: ooc.id, detail: "" });
+    expect(await rhythms.tick()).toMatchObject({ reason: "orientation", outcome: "posted" });
+    const state = (await call("GET", "/api/friend-page")).data.orientation;
+    expect(state).toMatchObject({ pending: false, held: null, last: { outcome: "posted" } });
+  });
+
   test("the weekly look back shows the week's journal", async () => {
     app.store.appState.set("orientation.pending", null);
     expect(await rhythms.tick()).toBeNull(); // starts counting
