@@ -38,7 +38,8 @@ import { join, resolve } from "node:path";
 import type { Config } from "./config.ts";
 import { keepAwake } from "./notify.ts";
 import { createApp, type App } from "./server.ts";
-import { validateSettings } from "./store.ts";
+import { Groups, type HubGroup } from "./groups.ts";
+import { isShared, validateSettings } from "./store.ts";
 import type { Settings } from "./types.ts";
 
 export interface HubServer {
@@ -58,6 +59,8 @@ export interface HubFriend {
 interface Registry {
   servers: HubServer[];
   friends: HubFriend[];
+  /** Group channels and DMs (src/groups.ts). */
+  groups?: HubGroup[];
 }
 
 /** Settings that are the friend themselves: never copied to a new friend. */
@@ -93,6 +96,8 @@ export interface Hub {
   start: () => void;
   /** Stop timers and close every database (tests). */
   close: () => void;
+  /** Group channels and DMs (src/groups.ts). */
+  groups: Groups;
 }
 
 class HubError extends Error {
@@ -129,6 +134,12 @@ export function createHub(config: Config, makeApp: (config: Config) => App = cre
   }
   if (!existsSync(registryPath)) save();
 
+  // Group channels and DMs: shared by several friends, so kept here.
+  const groups = new Groups(() => (registry.groups ??= []), apps, save, config.groupDelayMs);
+
+  /** The server a friend is in. */
+  const serverOf = (friendId: string) => registry.servers.find((s) => s.friends.includes(friendId));
+
   function open(friend: HubFriend): App {
     const app = makeApp({
       ...config,
@@ -143,7 +154,17 @@ export function createHub(config: Config, makeApp: (config: Config) => App = cre
           .filter((id) => id !== friend.id && apps.has(id))
           .map((id) => ({ id, name: apps.get(id)!.store.getSettings().friendName }));
       },
+      groups: {
+        info: (channelId) => groups.info(friend.id, channelId),
+        dmWith: (peerId) => {
+          const server = serverOf(friend.id);
+          if (!server || !server.friends.includes(peerId)) throw new HubError(400, "They aren't on your server.");
+          return groups.dm(server.id, friend.id, peerId).id;
+        },
+      },
     });
+    // What happens in a group channel's copy here is mirrored to the others.
+    app.store.onMessageEvent = (event, message) => groups.onEvent(friend.id, event, message);
     apps.set(friend.id, app);
     if (started) startApp(app);
     return app;
@@ -181,7 +202,8 @@ export function createHub(config: Config, makeApp: (config: Config) => App = cre
   function summary(id: string): FriendSummary {
     const { store, friend } = friendApp(id);
     const settings = store.getSettings();
-    const channels = store.listChannels();
+    // Group channels and DMs are listed with the server, not each friend.
+    const channels = store.listChannels().filter((c) => !isShared(c));
     return {
       id,
       name: settings.friendName,
@@ -199,8 +221,28 @@ export function createHub(config: Config, makeApp: (config: Config) => App = cre
     };
   }
 
+  /** A server's group channels and DMs, as the sidebar and server settings show them. */
+  function groupViews(serverId: string) {
+    return (registry.groups ?? [])
+      .filter((g) => g.serverId === serverId)
+      .map((g) => {
+        // Its newest message and who's writing there, from any member's copy.
+        const copies = g.friends.map((id) => apps.get(id)).filter((a): a is App => a !== undefined && a.store.hasChannel(g.id));
+        const last = g.visible || g.kind === "group" ? copies[0]?.store.lastMessage(g.id) : undefined;
+        return {
+          id: g.id,
+          kind: g.kind,
+          name: g.kind === "dm" ? g.friends.map((id) => apps.get(id)?.store.getSettings().friendName ?? "?").join(" & ") : g.name,
+          friends: g.friends,
+          visible: g.kind === "group" || g.visible,
+          activity: last ? { lastId: last.id, author: last.author, at: last.createdAt } : null,
+          writing: copies.filter((a) => a.friend.isBusy(g.id)).map((a) => a.store.getSettings().friendName),
+        };
+      });
+  }
+
   function view() {
-    return { servers: registry.servers.map((s) => ({ ...s, friends: s.friends.map(summary) })) };
+    return { servers: registry.servers.map((s) => ({ ...s, friends: s.friends.map(summary), groups: groupViews(s.id) })) };
   }
 
   // ------------------------------------------------------- new friends
@@ -268,6 +310,7 @@ export function createHub(config: Config, makeApp: (config: Config) => App = cre
     apps.delete(id);
     removeFriendFiles(friend);
     registry.friends = registry.friends.filter((p) => p.id !== id);
+    groups.friendGone(id);
     for (const s of registry.servers) s.friends = s.friends.filter((p) => p !== id);
     registry.servers = registry.servers.filter((s) => s.friends.length > 0);
   }
@@ -331,6 +374,41 @@ export function createHub(config: Config, makeApp: (config: Config) => App = cre
       }
     }
 
+    // Group channels and DMs (src/groups.ts).
+    if (parts[0] === "servers" && parts[2] === "groups" && method === "POST") {
+      const target = server(parts[1] ?? "");
+      const input = await body(request);
+      const name = typeof input.name === "string" ? input.name.trim().toLowerCase().replace(/\s+/g, "-").slice(0, 100) : "";
+      if (!name) throw new HubError(400, "A group channel needs a name.");
+      const friends = input.friends;
+      if (!Array.isArray(friends) || new Set(friends).size !== friends.length || friends.length < 2 || !friends.every((f) => typeof f === "string" && target.friends.includes(f))) {
+        throw new HubError(400, "A group channel needs two or more friends from this server.");
+      }
+      const group = groups.create("group", target.id, friends as string[], name);
+      return json({ group, ...view() });
+    }
+    if (parts[0] === "groups" && parts[1]) {
+      const group = groups.get(parts[1]);
+      if (!group) throw new HubError(404, "There's no such group channel.");
+      if (method === "PATCH" && parts.length === 2) {
+        const input = await body(request);
+        if (input.name !== undefined) {
+          if (typeof input.name !== "string" || !input.name.trim() || input.name.length > 100) throw new HubError(400, "A name is text, 100 characters at most.");
+          groups.rename(group.id, input.name.trim().toLowerCase().replace(/\s+/g, "-"));
+        }
+        if (input.visible !== undefined) {
+          if (typeof input.visible !== "boolean" || group.kind !== "dm") throw new HubError(400, '"visible" is true or false, for DMs.');
+          group.visible = input.visible;
+          save();
+        }
+        return json(view());
+      }
+      if (method === "DELETE" && parts.length === 2) {
+        groups.remove(group.id);
+        return json(view());
+      }
+    }
+
     if (parts[0] === "friends" && parts[1]) {
       const id = parts[1];
       friendApp(id);
@@ -383,8 +461,10 @@ export function createHub(config: Config, makeApp: (config: Config) => App = cre
       for (const app of apps.values()) startApp(app);
     },
     close: () => {
+      groups.stop();
       for (const app of apps.values()) stopApp(app);
     },
+    groups,
   };
 }
 

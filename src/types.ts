@@ -29,7 +29,14 @@ export type Author = "user" | "friend";
  *   (orientation). You can see it, but nothing in it feeds anything else:
  *   no summaries, and it's left out of every other channel's prompt.
  */
-export type ChannelKind = "rp" | "ooc" | "practice";
+/**
+ * "rp" and "ooc" are yours and theirs; "practice" is theirs alone; "group"
+ * is you and several friends, "dm" two friends (stage 7, src/groups.ts).
+ */
+export type ChannelKind = "rp" | "ooc" | "practice" | "group" | "dm";
+
+/** Who wrote a message: you, this friend, or another friend (a "peer", in a group channel or DM). */
+export type MessageAuthor = Author | "peer";
 
 /**
  * How an RP channel is written and shown (see "Channel modes" in DESIGN.md).
@@ -247,7 +254,9 @@ export interface Message {
   channelId: string;
   /** A message, or a scene break. */
   kind: MessageKind;
-  author: Author;
+  author: MessageAuthor;
+  /** A peer's message: which friend wrote it (their hub id and name at the time). */
+  speaker?: { id: string; name: string };
   /** The message text (or a scene break's title), exactly as written or returned by the model. */
   content: string;
   /**

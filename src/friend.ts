@@ -51,7 +51,8 @@ import type { Store } from "./store.ts";
 import { extractTextToolCalls, parseArguments, type ParsedCall } from "./toolcalls.ts";
 import { isPrivateTool, runTool, toolSpecs, type ToolContext, type ToolOutcome } from "./tools.ts";
 import { invited, NEW_PROFILE, settleInvitation } from "./orientation.ts";
-import type { Peer } from "./config.ts";
+import type { GroupDirectory, Peer } from "./config.ts";
+import { isShared } from "./store.ts";
 import type { ApiMessage, ApiToolCall, Channel, ChatMessage, CommentThread, Message, Profile, ToolCallRecord } from "./types.ts";
 
 /** The most rounds of tool calls in one turn. The last round is offered no tools, so it has to write. */
@@ -67,7 +68,7 @@ export const OWN_TIME_ROUNDS = 12;
  * What caused a turn. Used for the server log. "wake" is a turn on their
  * own (stage 8, see src/wakeups.ts).
  */
-export type TurnTrigger = "user-message" | "continue" | "regenerate" | "comment" | "wake";
+export type TurnTrigger = "user-message" | "continue" | "regenerate" | "comment" | "wake" | "group";
 
 /** Extra options for a turn. */
 export interface TurnOptions {
@@ -86,6 +87,8 @@ export interface TurnOptions {
   profileId?: string;
   /** A wake-up (stage 8): why your friend is taking a turn on their own. */
   wake?: WakeContext;
+  /** A turn in a group channel's round (src/groups.ts): doing nothing is the default. */
+  group?: boolean;
 }
 
 /** Everything one turn produced. */
@@ -143,6 +146,8 @@ export interface PromptOptions {
   preview?: boolean;
   /** The other friends on their server (names only), for "Friends here". */
   peers?: Peer[];
+  /** Group channels and DMs (src/groups.ts), for who's in each. */
+  groups?: GroupDirectory | null;
 }
 
 /**
@@ -254,6 +259,9 @@ export function promptForChannel(store: Store, channelId: string, options: Promp
       waiting: store.schedule.waiting().map((w) => ({ id: w.id, at: w.at, note: w.note, channel: channelName(w.channelId) })),
     },
     // Never the messages already here, nor ones this turn replaces (a regeneration).
+    // Group channels and DMs: who's in this one, and in each (src/groups.ts).
+    group: isShared(channel) ? (options.groups?.info(channel.id) ?? null) : null,
+    shared: Object.fromEntries(channels.filter(isShared).map((c) => [c.id, options.groups?.info(c.id) ?? null])),
     // Who else is on their server, with their private note on each (src/relationships.ts).
     friendsHere: (options.peers ?? []).map((p) => ({
       name: p.name,
@@ -287,6 +295,15 @@ export function noticesFor(store: Store, tools = true): string[] {
   const notices: string[] = [];
   const words = wording("orientation");
   if (tools && store.appState.get("orientation.invited")) notices.push(words.invitation ?? "The user invited you to an orientation.");
+  // A friend wrote to them in a DM, and they haven't answered yet.
+  if (tools) {
+    for (const dm of store.listChannels().filter((c) => c.kind === "dm")) {
+      const last = store.lastMessage(dm.id);
+      if (last?.author === "peer") {
+        notices.push((wording("friends")["dm-waiting"] ?? "").replace("{name}", last.speaker?.name ?? "A friend").replace("{channel}", dm.name));
+      }
+    }
+  }
   const names = store.appState.get(NEW_PROFILE);
   if (names) notices.push((words["new-profile"] ?? "A new profile joined your roulette: {names}.").replace("{names}", names));
   return notices;
@@ -537,6 +554,9 @@ export class Friend {
   /** The other friends on their server (names only), from the hub. */
   peers: () => Peer[] = () => [];
 
+  /** Group channels and DMs, from the hub (src/groups.ts). */
+  groups: GroupDirectory | null = null;
+
   /** Told when your friend posts in another channel mid-turn (`post_in_channel`), for notifications. */
   onPostedElsewhere: ((channel: Channel, messages: Message[]) => void) | null = null;
 
@@ -627,6 +647,7 @@ export class Friend {
         replyingTo,
         wake: options.wake,
         peers: this.peers(),
+        groups: this.groups,
       });
       const context: ToolContext = {
         store: this.store,
@@ -640,6 +661,7 @@ export class Friend {
         profileName: profile.name,
         profileId: profile.id,
         peers: this.peers(),
+        groups: this.groups ?? undefined,
         isBusy: (id) => this.isBusy(id),
         onPosted: (where, messages) => this.onPostedElsewhere?.(where, messages),
       };
@@ -670,7 +692,7 @@ export class Friend {
       const result: TurnResult = { messages: [], toolCalls: loop.toolCalls, replaced: [], skipped: false };
       // "[nothing]": a wake-up or comment reply without tools that had
       // nothing to say.
-      if ((options.wake || replyingTo) && isNothing(loop.content)) loop.content = "";
+      if ((options.wake || replyingTo || options.group) && isNothing(loop.content)) loop.content = "";
       if (loop.stopped || loop.content === "") {
         // Nothing to write: your friend chose not to, or only acted. A
         // regeneration keeps the reply it would have replaced.

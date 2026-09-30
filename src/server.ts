@@ -143,6 +143,7 @@ import {
 import type { CastMember, Channel, Message, Settings } from "./types.ts";
 import { PermissionError } from "./errors.ts";
 import {
+  isShared,
   NotFoundError,
   Store,
   ValidationError,
@@ -276,8 +277,16 @@ export function createApp(config: Config): App {
     timeoutMs: config.requestTimeoutMs,
   };
   const friend = new Friend(store, api);
-  // Who else is on their server (from the hub; names only).
+  // Who else is on their server (from the hub; names only), and group
+  // channels and DMs (src/groups.ts).
   if (config.peers) friend.peers = config.peers;
+  if (config.groups) friend.groups = config.groups;
+
+  /** A DM you chose not to see: no screen, no messages. */
+  function hiddenDm(channelId: string): boolean {
+    const channel = store.hasChannel(channelId) ? store.getChannel(channelId) : null;
+    return channel?.kind === "dm" && config.groups?.info(channelId)?.visible === false;
+  }
   const summarizer = new Summarizer(store, api, config.summaryDelayMs);
   const decider = new Decider(
     api,
@@ -309,7 +318,10 @@ export function createApp(config: Config): App {
   };
   // …and so does a post in another channel (post_in_channel), whatever
   // started the turn: you weren't looking there.
-  friend.onPostedElsewhere = (channel, messages) => wakeups.onPosted?.(channel, messages);
+  // (Never for a DM: you're not in it, and it may be hidden from you.)
+  friend.onPostedElsewhere = (channel, messages) => {
+    if (channel.kind !== "dm") wakeups.onPosted?.(channel, messages);
+  };
   const autoWake = config.autoWake ?? true;
 
   /**
@@ -357,7 +369,7 @@ export function createApp(config: Config): App {
   }
 
   function channelViews(): ChannelView[] {
-    return store.listChannels().map(channelView);
+    return store.listChannels().filter((c) => !hiddenDm(c.id)).map(channelView);
   }
 
   /** Presence, from the real state: writing, reading (a tool call), quiet (quiet hours), or idle. */
@@ -763,8 +775,9 @@ export function createApp(config: Config): App {
     {
       method: "GET",
       pattern: "/api/channels/:id/messages",
-      handler: (_request, { id }) =>
-        json({
+      handler: (_request, { id }) => {
+        if (hiddenDm(id!)) throw new HttpError(403, "You chose not to see this DM.");
+        return json({
           messages: store.getMessages(id!),
           // Your friend's actions (shown under their messages), and comments.
           toolCalls: store.toolLog.forChannel(id!),
@@ -773,7 +786,8 @@ export function createApp(config: Config): App {
           summaries: summarizer.view(id!),
           // Posts your friend marked as sounding like them, or flagged "not me" (src/continuity.ts).
           flags: channelFlags(id!),
-        }),
+        });
+      },
     },
 
     // --------------------------------------------------------- summaries
@@ -868,6 +882,7 @@ export function createApp(config: Config): App {
         const content = rollCommand(requireText(body, "content"));
         const channel = store.getChannel(id!); // 404 for an unknown channel
         if (channel.kind === "practice") throw new HttpError(400, "The practice channel is your friend's own: you can read it, not write in it.");
+        if (channel.kind === "dm") throw new HttpError(400, "A DM is between two friends: you can't write in it.");
         // Refuse *before* saving, so a message sent while the friend is busy
         // isn't saved without a reply attached.
         ensureIdle(id!);
@@ -900,8 +915,9 @@ export function createApp(config: Config): App {
         }
 
         // `reply: false`: just save it. In OOC with texting on, the app sends
-        // your bubbles this way and asks for a turn once you pause.
-        if ((body as { reply?: unknown }).reply === false) {
+        // your bubbles this way and asks for a turn once you pause. In a group
+        // channel, the hub starts a round (src/groups.ts): nobody replies here.
+        if ((body as { reply?: unknown }).reply === false || channel.kind === "group") {
           return json({ userMessages, channel: channelView(store.getChannel(id!)), channels: channelViews() });
         }
         // The reply is attempted separately: if it fails, your message is still
@@ -922,8 +938,10 @@ export function createApp(config: Config): App {
     {
       method: "POST",
       pattern: "/api/channels/:id/turn",
-      handler: async (_request, { id }) =>
-        json({ ...turnResult(await friend.takeTurn(id!, "continue")), channels: channelViews() }),
+      handler: async (_request, { id }) => {
+        if (store.getChannel(id!).kind === "dm") throw new HttpError(400, "A DM is between two friends: they write there on their own time.");
+        return json({ ...turnResult(await friend.takeTurn(id!, "continue")), channels: channelViews() });
+      },
     },
     {
       method: "POST",
@@ -945,6 +963,7 @@ export function createApp(config: Config): App {
       pattern: "/api/channels/:id/regenerate",
       handler: async (request, { id }) => {
         ensureIdle(id!);
+        if (isShared(store.getChannel(id!))) throw new HttpError(400, "Replies in a group channel or DM can't be regenerated: the others have already seen them.");
         // Optional: the profile to write with ("Regenerate with..."). Without
         // one, the channel's profile or roulette picks again.
         const body = (await readJson(request)) as { profileId?: unknown } | null;
@@ -1473,6 +1492,9 @@ export function createApp(config: Config): App {
 
     try {
       checkRequestIsFromTheApp(request);
+      // A DM you chose not to see has no screen: nothing about it is served.
+      const channelId = url.pathname.match(/^\/api\/channels\/([^/]+)/)?.[1];
+      if (channelId && hiddenDm(decodeURIComponent(channelId))) return errorResponse(403, "You chose not to see this DM.");
       for (const route of routes) {
         const params = matchRoute(route, request.method, url.pathname);
         if (params) return await route.handler(request, params);

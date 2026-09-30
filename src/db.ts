@@ -734,6 +734,70 @@ export const MIGRATIONS: Migration[] = [
     updated_at TEXT NOT NULL
   );
   `,
+
+  // ---------------------------------------------------------------- 8
+  // Rebuild stage 7: group channels and DMs. A group channel (or a DM
+  // between two friends) is kept by every friend in it, in their own
+  // database, under the same id, with every message mirrored under the
+  // same id (src/groups.ts). Messages from the other friends are by a
+  // "peer": their hub id and name are kept with the message. Both tables
+  // get new allowed values, so both are rebuilt.
+  {
+    rebuild: `
+  CREATE TABLE channels_new (
+    id            TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    -- 'rp', 'ooc', 'practice', or 'group' (several friends and you) or
+    -- 'dm' (two friends).
+    kind          TEXT NOT NULL CHECK (kind IN ('rp', 'ooc', 'practice', 'group', 'dm')),
+    position      INTEGER NOT NULL,
+    mode          TEXT NOT NULL DEFAULT 'literary' CHECK (mode IN ('literary', 'casual')),
+    pending_mode  TEXT CHECK (pending_mode IN ('literary', 'casual')),
+    theme         TEXT,
+    assignment    TEXT,
+    category_id   TEXT REFERENCES categories (id) ON DELETE SET NULL,
+    created_at    TEXT NOT NULL,
+    paused_reason TEXT,
+    paused_at     TEXT
+  );
+  INSERT INTO channels_new (id, name, kind, position, mode, pending_mode, theme, assignment, category_id, created_at, paused_reason, paused_at)
+    SELECT id, name, kind, position, mode, pending_mode, theme, assignment, category_id, created_at, paused_reason, paused_at FROM channels;
+  DROP TABLE channels;
+  ALTER TABLE channels_new RENAME TO channels;
+
+  CREATE TABLE messages_new (
+    seq           INTEGER PRIMARY KEY AUTOINCREMENT,
+    id            TEXT NOT NULL UNIQUE,
+    channel_id    TEXT NOT NULL REFERENCES channels (id) ON DELETE CASCADE,
+    kind          TEXT NOT NULL DEFAULT 'post' CHECK (kind IN ('post', 'scene_break')),
+    mode          TEXT CHECK (mode IN ('literary', 'casual')),
+    turn_id       TEXT,
+    -- 'user' (you), 'friend' (this friend), or 'peer' (another friend, in a
+    -- group channel or DM: see speaker_id and speaker_name).
+    author        TEXT NOT NULL CHECK (author IN ('user', 'friend', 'peer')),
+    content       TEXT NOT NULL,
+    created_at    TEXT NOT NULL,
+    edited_at     TEXT,
+    model         TEXT,
+    profile       TEXT,
+    edited_by     TEXT CHECK (edited_by IN ('user', 'friend')),
+    deleted_at    TEXT,
+    deleted_by    TEXT CHECK (deleted_by IN ('user', 'friend')),
+    superseded_by TEXT,
+    reply_to      TEXT,
+    speaker_id    TEXT,
+    speaker_name  TEXT
+  );
+  INSERT INTO messages_new (seq, id, channel_id, kind, mode, turn_id, author, content, created_at, edited_at, model, profile,
+                            edited_by, deleted_at, deleted_by, superseded_by, reply_to)
+    SELECT seq, id, channel_id, kind, mode, turn_id, author, content, created_at, edited_at, model, profile,
+           edited_by, deleted_at, deleted_by, superseded_by, reply_to FROM messages;
+  DROP TABLE messages;
+  ALTER TABLE messages_new RENAME TO messages;
+  CREATE INDEX messages_by_channel ON messages (channel_id, seq);
+  CREATE INDEX messages_by_superseding_turn ON messages (superseded_by);
+  `,
+  },
 ];
 
 /**

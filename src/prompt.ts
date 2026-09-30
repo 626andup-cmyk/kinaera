@@ -53,6 +53,7 @@ import type { PromptEntry } from "./notebook.ts";
 import { playedBy } from "./permissions.ts";
 import { wording } from "./wording.ts";
 import { localTime } from "./schedule.ts";
+import type { GroupInfo } from "./config.ts";
 import type { Channel, ChannelKind, ChannelMode, ChatMessage, Message, NotebookEntry, Player, Settings } from "./types.ts";
 
 /**
@@ -106,6 +107,15 @@ export const NUDGES: Record<ChannelKind, { continue: string; opening: string }> 
   practice: {
     continue: "(Nothing new from me here. This is your practice channel: try whatever you like, or leave it.)",
     opening: "(Nothing new from me here. This is your practice channel: try whatever you like, or leave it.)",
+  },
+  // Group channels and DMs (stage 7): see defaults/friends.md for the framing.
+  group: {
+    continue: "(It's your turn in this round, if you want it. Write only if you have something to add; doing nothing is fine.)",
+    opening: "(It's your turn in this round, if you want it. Write only if you have something to add; doing nothing is fine.)",
+  },
+  dm: {
+    continue: "(Nothing new here. Write if you'd like to, or leave it.)",
+    opening: "(This DM is new. Write if you'd like to, or leave it.)",
   },
 };
 
@@ -353,6 +363,10 @@ export interface PromptInput {
   notices?: string[];
   /** The time now (the user's local time, in words) and their waiting wake-ups (src/schedule.ts). */
   schedule?: { now: string; waiting: { id: number; at: string; note: string; channel: string | null }[]; status?: string | null };
+  /** This channel, if it's a group channel or DM: who else is in it (src/groups.ts). */
+  group?: GroupInfo | null;
+  /** Every group channel and DM they're in, for the channel list. */
+  shared?: Record<string, GroupInfo | null>;
   /** The other friends on their server, with their private note on each (null: none yet). */
   friendsHere?: { name: string; note: string | null }[];
   /** Short excerpts of their own earlier writing in this kind of channel (src/continuity.ts). */
@@ -432,6 +446,8 @@ export function buildPromptStack({
   anchors,
   profileNote,
   friendsHere,
+  group,
+  shared,
 }: PromptInput): ChatMessage[] {
   const isRp = channel.kind === "rp";
   const isPractice = channel.kind === "practice";
@@ -476,7 +492,9 @@ export function buildPromptStack({
       title: "This channel",
       content: isPractice
         ? (wording("orientation")["practice-framing"] ?? null)
-        : channel.paused
+        : group
+          ? describeGroup(group)
+          : channel.paused
           ? (wording("time")["paused-here"] ?? "").replace("{reason}", channel.paused.reason)
           : null,
     },
@@ -503,7 +521,7 @@ export function buildPromptStack({
     // Layer 3, in OOC: an overview of the server and the notebook instead.
     {
       title: "Channels on your server",
-      content: isRp ? null : describeChannels(channels.filter((c) => c.kind !== "practice" || c.id === channel.id), channel, overview?.castNames ?? {}, digests ?? {}, categoryNames ?? {}),
+      content: isRp ? null : describeChannels(channels.filter((c) => c.kind !== "practice" || c.id === channel.id), channel, overview?.castNames ?? {}, digests ?? {}, categoryNames ?? {}, shared ?? {}),
     },
     ...(mentioned ?? []).map((m) => ({ title: `About #${m.name}`, content: m.summary })),
     { title: "Your shared notebook", content: isRp || isPractice ? null : describeNotebook(overview?.entries ?? []) },
@@ -551,6 +569,8 @@ export function buildPromptStack({
     texting: !isRp && !isPractice && settings.oocBubbles,
     editMarkers,
     replies: new Map(messages.map((m) => [m.id, m])),
+    // In a group channel or DM, every line says who it's from.
+    speakers: channel.kind === "group" || channel.kind === "dm",
   });
 
   // If the conversation doesn't end on your message, add a nudge so the model
@@ -649,6 +669,19 @@ export function describeJournal(journal: PromptInput["journal"]): string | null 
   }
   if (lines.length === 0) return "(Nothing yet. write_journal adds an entry.)";
   return lines.join("\n\n");
+}
+
+/** "This channel" in a group channel or DM: who's here, and how turns work. */
+export function describeGroup(group: GroupInfo): string {
+  const words = wording("friends");
+  const names = group.members.map((m) => m.name);
+  if (group.kind === "dm") {
+    return (words.dm ?? "")
+      .replace("{name}", names[0] ?? "another friend")
+      .replace("{visibility}", (group.visible ? words["dm-visible"] : words["dm-hidden"]) ?? "");
+  }
+  const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : (names[0] ?? "other friends");
+  return (words.group ?? "").replace("{names}", list);
 }
 
 /** "Friends here": the other friends on the server, with their private note on each. */
@@ -781,17 +814,22 @@ export function describeChannels(
   castNames: Record<string, string[]>,
   digests: Record<string, string> = {},
   categoryNames: Record<string, string> = {},
+  shared: Record<string, GroupInfo | null> = {},
 ): string {
   return channels
     .map((c) => {
       const inCategory = c.categoryId && categoryNames[c.categoryId] ? ` (in ${categoryNames[c.categoryId]})` : "";
       if (c.id === current.id) return `- #${c.name}${inCategory}: this conversation`;
+      // Group channels and DMs (src/groups.ts): who's there. DMs have no digest.
+      const names = (shared[c.id]?.members ?? []).map((m) => m.name);
+      if (c.kind === "dm") return `- #${c.name}: your DM with ${names.join(" & ") || "another friend"}`;
       const digest = digests[c.id]?.trim().replace(/\s*\n\s*/g, " ");
       const about = digest ? `. ${digest}` : "";
       if (c.kind === "ooc") return `- #${c.name}${inCategory}: another out-of-character chat${about}`;
-      const names = castNames[c.id] ?? [];
+      if (c.kind === "group") return `- #${c.name}${inCategory}: group channel with the user and ${names.join(", ") || "other friends"}${about}`;
+      const cast = castNames[c.id] ?? [];
       const paused = c.paused ? ` (${wording("time")["paused-channel"] ?? "paused"}: "${c.paused.reason}")` : "";
-      return `- #${c.name}${inCategory}: roleplay${paused}${names.length ? `, you play ${names.join(", ")}` : ""}${about}`;
+      return `- #${c.name}${inCategory}: roleplay${paused}${cast.length ? `, you play ${cast.join(", ")}` : ""}${about}`;
     })
     .join("\n");
 }
@@ -907,7 +945,7 @@ export function recentMessages(messages: Message[], limit: number): Message[] {
  */
 export function toChatHistory(
   messages: Message[],
-  options: { texting?: boolean; editMarkers?: boolean; replies?: Map<string, Message> } = {},
+  options: { texting?: boolean; editMarkers?: boolean; replies?: Map<string, Message>; speakers?: boolean } = {},
 ): ChatMessage[] {
   const history: ChatMessage[] = [];
   for (const message of messages) {
@@ -923,11 +961,15 @@ export function toChatHistory(
       if (content === "") continue;
       // Their preference (the self-page): edited messages say so.
       if (options.editMarkers && message.editedBy) content = `(edited by ${message.editedBy === "user" ? "the user" : "you"}) ${content}`;
-      role = message.author === "user" ? "user" : "assistant";
+      // Only this friend's own messages are theirs ("assistant"): yours and
+      // other friends' are said to them.
+      role = message.author === "friend" ? "assistant" : "user";
+      if (message.author === "peer") content = `${message.speaker?.name ?? "Another friend"}: ${content}`;
+      else if (message.author === "user" && options.speakers) content = `The user: ${content}`;
       // A reply says what it answers, briefly.
       const target = message.replyTo ? options.replies?.get(message.replyTo) : undefined;
       if (target) {
-        const who = target.author === "user" ? "the user" : "you";
+        const who = target.author === "user" ? "the user" : target.author === "peer" ? (target.speaker?.name ?? "another friend") : "you";
         const preview = target.content.replace(/\s+/g, " ").trim();
         content = `(replying to ${who}: "${preview.length > 80 ? `${preview.slice(0, 80)}…` : preview}") ${content}`;
       }

@@ -41,7 +41,7 @@ import type { ToolSpec } from "./nanogpt.ts";
 import type { Store } from "./store.ts";
 import { channelSummaryText } from "./summaries.ts";
 import type { Channel, EntryField, Message, Owner } from "./types.ts";
-import type { Peer } from "./config.ts";
+import type { GroupDirectory, Peer } from "./config.ts";
 
 /** Where a tool runs: the channel of the turn, and what kind of turn. */
 export interface ToolContext {
@@ -64,6 +64,8 @@ export interface ToolContext {
   profileId?: string;
   /** The other friends on their server (names only), from the hub. */
   peers?: Peer[];
+  /** Group channels and DMs, from the hub (src/groups.ts). */
+  groups?: GroupDirectory;
   /** Whether your friend is already writing in a channel (another turn). */
   isBusy?: (channelId: string) => boolean;
   /** Told about messages posted in another channel (a phone notification, if the app isn't open). */
@@ -1308,6 +1310,7 @@ OWN.push(
     run: (ctx, args) => {
       const channel = findChannel(ctx, need(args, "channel"));
       if (channel.id === ctx.channel.id) throw new ToolError("That's this channel: just write your reply here.");
+      if (channel.kind === "dm") throw new ToolError("For a DM, use message_friend.");
       const text = need(args, "text").trim();
       const title = maybe(args, "new_scene");
       postMessage(ctx, channel, text, title);
@@ -1428,6 +1431,7 @@ OWN.push(
         : draft.channelId && ctx.store.hasChannel(draft.channelId)
           ? ctx.store.getChannel(draft.channelId)
           : ctx.store.getChannel(ctx.channel.id);
+      if (channel.kind === "dm") throw new ToolError("For a DM, use message_friend (copy the draft's text).");
       // The practice channel feeds nothing else, and nothing else feeds it.
       if ((channel.kind === "practice") !== (ctx.channel.kind === "practice")) {
         throw new ToolError(ctx.channel.kind === "practice" ? "From your practice channel, a draft can only be posted here." : "The practice channel is for orientation.");
@@ -1596,6 +1600,25 @@ OWN.push({
     if (!peer) throw new ToolError(`There's no friend called "${args.friend}" here. Friends here: ${(ctx.peers ?? []).map((p) => p.name).join(", ")}.`);
     ctx.store.relationships.write(peer.id, peer.name, String(args.note ?? ""));
     return { result: { saved: true }, summary: "wrote a private note on a friend" };
+  },
+});
+
+// ------------------------------------------------------------------ DMs
+
+OWN.push({
+  name: "message_friend",
+  description:
+    "Write to another friend on this server, in your DM with them (made if there isn't one yet). They see it on their next turn and answer when they have a moment of their own. Whether the user can read your DMs is up to them; \"This channel\" in the DM says which. Your message isn't in any log.",
+  parameters: object({ friend: str("Their name."), text: str("Your message.") }, ["friend", "text"]),
+  available: (ctx) => (ctx.peers ?? []).length > 0 && ctx.groups !== undefined && ctx.channel.kind !== "practice",
+  private: true,
+  run: (ctx, args) => {
+    const name = need(args, "friend").trim().toLowerCase();
+    const peer = (ctx.peers ?? []).find((p) => p.name.toLowerCase() === name);
+    if (!peer) throw new ToolError(`There's no friend called "${args.friend}" here. Friends here: ${(ctx.peers ?? []).map((p) => p.name).join(", ")}.`);
+    const channel = ctx.store.getChannel(ctx.groups!.dmWith(peer.id));
+    postMessage(ctx, channel, need(args, "text").trim());
+    return { result: { sent: true, channel: hash(channel) }, summary: "wrote to a friend" };
   },
 });
 

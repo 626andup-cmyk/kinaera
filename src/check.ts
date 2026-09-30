@@ -136,9 +136,10 @@ function candidates(store: Store, channel: Channel, source: Exclude<CheckSource,
       .getMessages(channel.id)
       .filter((m) => m.kind === "post" && m.content.trim())
       .map((m) => {
-        const who = m.author === "user" ? "the user" : "you";
+        const who = m.author === "user" ? "the user" : m.author === "peer" ? (m.speaker?.name ?? "another friend") : "you";
         const voices = m.characters.length ? ` as ${m.characters.join(" & ")}` : "";
-        return { source, where: `#${channel.name}, ${who}${voices}, ${ago(m.createdAt)}`, text: cut(m.content.trim()) };
+        // A DM may be hidden from the user: its passages are never logged.
+        return { source, where: `#${channel.name}, ${who}${voices}, ${ago(m.createdAt)}`, text: cut(m.content.trim()), ...(channel.kind === "dm" ? { private: true } : {}) };
       });
   }
   const kinds = { story: "the story so far", scene: "a scene's summary", current: "earlier in the scene", digest: "the overview" } as const;

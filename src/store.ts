@@ -41,6 +41,7 @@ import { parseSections } from "./wording.ts";
 import type {
   Category,
   Author,
+  MessageAuthor,
   Channel,
   ChannelKind,
   ChannelMode,
@@ -407,7 +408,9 @@ interface MessageRow {
   kind: MessageKind;
   mode: ChannelMode | null;
   turn_id: string | null;
-  author: Author;
+  author: MessageAuthor;
+  speaker_id: string | null;
+  speaker_name: string | null;
   content: string;
   created_at: string;
   edited_at: string | null;
@@ -469,6 +472,7 @@ function toMessage(row: MessageRow): Message {
     ...(row.model ? { model: row.model } : {}),
     ...(row.profile ? { profile: row.profile } : {}),
     ...(row.reply_to ? { replyTo: row.reply_to } : {}),
+    ...(row.speaker_id ? { speaker: { id: row.speaker_id, name: row.speaker_name ?? "" } } : {}),
   };
 }
 
@@ -479,7 +483,7 @@ function toMessage(row: MessageRow): Message {
  * everything about a message.
  */
 const SELECT_MESSAGES = `
-  SELECT m.id, m.channel_id, m.kind, m.mode, m.turn_id, m.author, m.content, m.created_at, m.edited_at, m.model, m.profile, m.reply_to,
+  SELECT m.id, m.channel_id, m.kind, m.mode, m.turn_id, m.author, m.content, m.created_at, m.edited_at, m.model, m.profile, m.reply_to, m.speaker_id, m.speaker_name,
     m.edited_by, m.deleted_at, m.deleted_by, m.superseded_by,
     (SELECT COUNT(DISTINCT COALESCE(a.turn_id, a.id)) FROM messages a
        WHERE m.turn_id IS NOT NULL AND a.superseded_by = m.turn_id AND a.channel_id = m.channel_id) AS alternates,
@@ -502,7 +506,9 @@ const LIVE = "m.deleted_at IS NULL AND m.superseded_by IS NULL";
 /** The fields you give when adding a message. */
 export interface NewMessage {
   channelId: string;
-  author: Author;
+  author: MessageAuthor;
+  /** A peer's message (group channels, DMs): which friend wrote it. */
+  speaker?: { id: string; name: string };
   content: string;
   characters?: string[];
   model?: string;
@@ -581,6 +587,45 @@ export class Store {
   private messagesChanged(channelId: string): void {
     this.revision++;
     for (const watcher of this.messageWatchers) watcher(channelId);
+  }
+
+  /**
+   * Told when a message is added, edited or deleted here (not when a copy
+   * arrives from another friend's store): group channels and DMs mirror it
+   * to the others (src/groups.ts).
+   */
+  onMessageEvent: ((event: "added" | "edited" | "deleted", message: Message) => void) | null = null;
+
+  private messageEvent(event: "added" | "edited" | "deleted", message: Message): void {
+    try {
+      this.onMessageEvent?.(event, message);
+    } catch (error) {
+      console.warn("[store] couldn't pass on a message change", error);
+    }
+  }
+
+  // ------------------------------------------------ mirrored (group) copies
+
+  /** A message another friend's store sent (group channels, DMs): saved as is, under the same id. */
+  mirrorAdd(message: NewMessage & { id: string; createdAt: string }): void {
+    if (this.db.query("SELECT 1 FROM messages WHERE id = $id").get({ id: message.id })) return;
+    this.addMessage({ ...message, mirrored: true });
+  }
+
+  /** An edit made in another friend's store. The owner's own copy keeps the revision; copies just follow. */
+  mirrorEdit(id: string, content: string): void {
+    const row = this.db.query("SELECT channel_id FROM messages WHERE id = $id").get({ id }) as { channel_id: string } | null;
+    if (!row) return;
+    this.db.query("UPDATE messages SET content = $content, edited_at = $now WHERE id = $id").run({ id, content, now: new Date().toISOString() });
+    this.messagesChanged(row.channel_id);
+  }
+
+  /** A deletion made in another friend's store. */
+  mirrorDelete(id: string): void {
+    const row = this.db.query("SELECT channel_id FROM messages WHERE id = $id").get({ id }) as { channel_id: string } | null;
+    if (!row) return;
+    this.db.query("UPDATE messages SET deleted_at = $now WHERE id = $id AND deleted_at IS NULL").run({ id, now: new Date().toISOString() });
+    this.messagesChanged(row.channel_id);
   }
 
   /**
@@ -735,11 +780,12 @@ export class Store {
   }
 
   /** Create a channel at the bottom of the sidebar. */
-  createChannel(input: NewChannel & { categoryId?: string | null }): Channel {
+  createChannel(input: NewChannel & { categoryId?: string | null; id?: string }): Channel {
     const { next } = this.db.query("SELECT COALESCE(MAX(position) + 1, 0) AS next FROM channels WHERE kind != 'practice'").get() as {
       next: number;
     };
-    const id = crypto.randomUUID();
+    // A group channel or DM has the same id in every friend's store (src/groups.ts).
+    const id = input.id ?? crypto.randomUUID();
     this.db
       .query(
         `INSERT INTO channels (id, name, kind, mode, position, category_id, created_at)
@@ -840,7 +886,8 @@ export class Store {
    *             with gaps or duplicates.
    */
   reorderChannels(ids: string[], categoryOf?: Record<string, string | null>): Channel[] {
-    const existing = new Set(this.listChannels().map((c) => c.id));
+    // Group channels and DMs are ordered by the hub, not here.
+    const existing = new Set(this.listChannels().filter((c) => !isShared(c)).map((c) => c.id));
     const given = new Set(ids);
     if (given.size !== ids.length || given.size !== existing.size || ids.some((id) => !existing.has(id))) {
       throw new ValidationError("The new order must list every channel exactly once.");
@@ -988,11 +1035,11 @@ export class Store {
    *
    * @param createdAt  Only for importing old messages; new ones get "now".
    */
-  addMessage(input: NewMessage & { id?: string; createdAt?: string; editedAt?: string }): Message {
+  addMessage(input: NewMessage & { id?: string; createdAt?: string; editedAt?: string; mirrored?: boolean }): Message {
     const id = input.id ?? crypto.randomUUID();
     const insertMessage = this.db.query(
-      `INSERT INTO messages (id, channel_id, kind, mode, turn_id, author, content, created_at, edited_at, model, profile, reply_to)
-       VALUES ($id, $channelId, $kind, $mode, $turnId, $author, $content, $createdAt, $editedAt, $model, $profile, $replyTo)`,
+      `INSERT INTO messages (id, channel_id, kind, mode, turn_id, author, content, created_at, edited_at, model, profile, reply_to, speaker_id, speaker_name)
+       VALUES ($id, $channelId, $kind, $mode, $turnId, $author, $content, $createdAt, $editedAt, $model, $profile, $replyTo, $speakerId, $speakerName)`,
     );
     const insertCharacter = this.db.query(
       "INSERT OR IGNORE INTO message_characters (message_id, character_name, position) VALUES ($id, $name, $position)",
@@ -1013,12 +1060,16 @@ export class Store {
         model: input.model ?? null,
         profile: input.profile ?? null,
         replyTo: input.replyTo ?? null,
+        speakerId: input.speaker?.id ?? null,
+        speakerName: input.speaker?.name ?? null,
       });
       (input.characters ?? []).forEach((name, position) => insertCharacter.run({ id, name, position }));
     })();
 
     this.messagesChanged(input.channelId);
-    return this.getMessage(id);
+    const saved = this.getMessage(id);
+    if (!input.mirrored) this.messageEvent("added", saved);
+    return saved;
   }
 
   /**
@@ -1082,6 +1133,15 @@ export class Store {
     if (content === message.content) return message;
     this.summaries.messageChanging(message, false);
     const now = new Date().toISOString();
+    // Another friend's message (a group channel): its history is kept in
+    // their own store, where it's theirs. Here the copy just follows.
+    if (message.author === "peer") {
+      this.db.query("UPDATE messages SET content = $content, edited_at = $now, edited_by = $by WHERE id = $id").run({ id, content, now, by });
+      this.messagesChanged(message.channelId);
+      const edited = this.getMessage(id);
+      this.messageEvent("edited", edited);
+      return edited;
+    }
     this.db.transaction(() => {
       const insert = this.db.query(
         "INSERT INTO message_revisions (message_id, content, author, created_at) VALUES ($id, $content, $author, $at)",
@@ -1100,7 +1160,9 @@ export class Store {
       }
     })();
     this.messagesChanged(message.channelId);
-    return this.getMessage(id);
+    const edited = this.getMessage(id);
+    this.messageEvent("edited", edited);
+    return edited;
   }
 
   /**
@@ -1125,6 +1187,7 @@ export class Store {
       }
     })();
     this.messagesChanged(message.channelId);
+    this.messageEvent("deleted", this.getMessage(id));
   }
 
   /**
@@ -1220,6 +1283,11 @@ export class Store {
     this.summaries.clear(channelId);
     this.messagesChanged(channelId);
   }
+}
+
+/** A group channel or DM: kept by several friends, under the same id (src/groups.ts). */
+export function isShared(channel: Pick<Channel, "kind">): boolean {
+  return channel.kind === "group" || channel.kind === "dm";
 }
 
 /** The start of a message, on one line, for the intervention log. */

@@ -54,12 +54,33 @@ export interface Config {
    * here (their names only: never anything they remember).
    */
   peers?: () => Peer[];
+  /** Group channels and DMs (from the hub). */
+  groups?: GroupDirectory;
+  /** How long after your last message in a group its round starts (tests: 0). */
+  groupDelayMs?: number;
 }
 
 /** Another friend on the same server. */
 export interface Peer {
   id: string;
   name: string;
+}
+
+/** A group channel or DM, as a friend in it knows it (src/groups.ts). */
+export interface GroupInfo {
+  kind: "group" | "dm";
+  /** The other friends in it. */
+  members: Peer[];
+  /** DMs: whether you (the user) can see it. Group channels: always. */
+  visible: boolean;
+}
+
+/** What a friend's app can ask the hub about group channels and DMs. */
+export interface GroupDirectory {
+  /** A group channel or DM this friend is in, by its channel id. */
+  info(channelId: string): GroupInfo | null;
+  /** The DM with another friend on their server, made if there isn't one yet: its channel id. */
+  dmWith(peerId: string): string;
 }
 
 /**
