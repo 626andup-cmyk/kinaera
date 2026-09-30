@@ -656,8 +656,16 @@ export class Notebook {
     return entry !== null && canSee(actor, this.settingsOf(entry));
   }
 
+  /**
+   * Whether your friend has standing permission to edit your entries
+   * directly where they'd otherwise suggest (src/standing.ts). Set by the store.
+   */
+  directEdits: () => boolean = () => false;
+
   private view(actor: Author, entry: NotebookEntry, folders = this.folderMap()): EntryView {
     const settings = this.settingsOf(entry, folders);
+    let edit = editAccess(actor, settings);
+    if (actor === "friend" && edit === "suggest" && settings.owner === "user" && this.directEdits()) edit = "direct";
     const pinnedIn = (
       this.db.query("SELECT channel_id FROM channel_cast WHERE entry_id = $id").all({ id: entry.id }) as {
         channel_id: string;
@@ -667,7 +675,7 @@ export class Notebook {
       ...entry,
       settings,
       access: {
-        edit: editAccess(actor, settings),
+        edit,
         settings: canChangeSettings(actor, entry.owner),
         delete: canDelete(actor, settings),
       },

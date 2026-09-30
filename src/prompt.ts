@@ -126,7 +126,7 @@ export const NUDGES: Record<ChannelKind, { continue: string; opening: string }> 
  * message from you: you opened the app, a scene ended, something is
  * waiting for them, or (endgame) the heartbeat.
  */
-export type WakeReason = "opened" | "away" | "scene-ended" | "review" | "heartbeat" | "answer" | "orientation" | "lookback" | "scheduled";
+export type WakeReason = "opened" | "away" | "scene-ended" | "review" | "heartbeat" | "answer" | "orientation" | "lookback" | "scheduled" | "farewell";
 
 /** What a wake-up turn is told about why it's happening. */
 export interface WakeContext {
@@ -204,6 +204,8 @@ export function describeWake(wake: WakeContext, tools: boolean): string {
   // Orientation and the look back are turns for your friend, in their
   // practice channel: they aren't about reaching out.
   if (wake.reason === "orientation") return wake.orientation ?? "";
+  // Their last turn before being archived (src/hub.ts): a note, if they like.
+  if (wake.reason === "farewell") return wording("retirement").farewell ?? "";
   if (wake.reason === "lookback") {
     const words = wording("orientation");
     const entries = wake.lookback ?? [];
@@ -227,6 +229,7 @@ export function describeWake(wake: WakeContext, tools: boolean): string {
     answer: `The user answered something you asked them (see "What you've asked of the user").`,
     orientation: "",
     lookback: "",
+    farewell: "",
   };
   const parts = [`You're taking a turn on your own: the user hasn't sent you anything new. ${why[wake.reason]} ${since}`];
   if (wake.scene) {
@@ -367,6 +370,8 @@ export interface PromptInput {
   group?: GroupInfo | null;
   /** Every group channel and DM they're in, for the channel list. */
   shared?: Record<string, GroupInfo | null>;
+  /** What the user has given them standing permission to do (src/standing.ts). */
+  permissions?: string | null;
   /** The other friends on their server, with their private note on each (null: none yet). */
   friendsHere?: { name: string; note: string | null }[];
   /** Short excerpts of their own earlier writing in this kind of channel (src/continuity.ts). */
@@ -448,6 +453,7 @@ export function buildPromptStack({
   friendsHere,
   group,
   shared,
+  permissions,
 }: PromptInput): ChatMessage[] {
   const isRp = channel.kind === "rp";
   const isPractice = channel.kind === "practice";
@@ -536,6 +542,7 @@ export function buildPromptStack({
     { title: "Tools", content: tools ? toolGuidance(channel.kind) : null },
     // Honest notes on how things work here (defaults/standing.md).
     { title: "Good to know", content: standingNotes(tools ?? false, isRp) },
+    { title: "Standing permissions", content: tools ? (permissions ?? null) : null },
     { title: "Reference library", content: tools ? describeLibrary(library ?? []) : null },
     // A wake-up (stage 8): why your friend is taking a turn on their own.
     { title: "Why you're up", content: wake ? describeWake(wake, tools ?? false) : null },

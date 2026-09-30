@@ -28,6 +28,7 @@ import { localTime } from "./schedule.ts";
 import { draftId } from "./drafts.ts";
 import { MIRROR_DEFAULT, MIRROR_MAX, readPatterns } from "./mirror.ts";
 import { roll } from "./dice.ts";
+import { granted } from "./standing.ts";
 import { queueOrientation } from "./orientation.ts";
 import { VERBATIM_SLOTS } from "./verbatim.ts";
 import { ASK_KIND_NAMES, ASK_KINDS, type AskKind } from "./inbox.ts";
@@ -628,6 +629,22 @@ const TOOLS: ToolDefinition[] = [
       const channel = findChannel(ctx, need(args, "channel"));
       ctx.store.inbox.propose("delete_channel", channel.id, channel.name, maybe(args, "reason") ?? "");
       return { result: { proposed: true, note: "The user will approve or deny it." }, summary: `proposed deleting ${hash(channel)}` };
+    },
+  },
+
+  {
+    name: "delete_channel",
+    description:
+      "Delete a channel and everything in it, yourself: the user gave you standing permission. Not group channels or DMs, and not the one you're in.",
+    parameters: object({ channel: str("The channel, like #old-story."), reason: str("Why, in a sentence (it's in the tool log).") }, ["channel"]),
+    available: (ctx) => granted(ctx.store, "delete-channels"),
+    run: (ctx, args) => {
+      const channel = findChannel(ctx, need(args, "channel"));
+      if (channel.id === ctx.channel.id) throw new ToolError("That's the channel you're in: delete it from another one.");
+      if (channel.kind === "group" || channel.kind === "dm") throw new ToolError("Group channels and DMs are shared: ask the user.");
+      if (ctx.isBusy?.(channel.id)) throw new ToolError(`You're writing in ${hash(channel)} (another turn). Try again later.`);
+      ctx.store.deleteChannel(channel.id);
+      return { result: { deleted: hash(channel) }, summary: `deleted ${hash(channel)}${maybe(args, "reason") ? ` (${maybe(args, "reason")})` : ""}` };
     },
   },
 

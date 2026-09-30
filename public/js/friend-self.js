@@ -182,7 +182,26 @@ function renderSelf() {
     .filter(Boolean)
     .join(" ");
 
+  renderPermissions();
   renderOrientation();
+}
+
+/** Standing permissions: a checkbox each. */
+function renderPermissions() {
+  $("self-permissions").replaceChildren(
+    ...(page.permissions ?? []).map((p) => {
+      const label = document.createElement("label");
+      label.className = "check-option";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = p.granted;
+      box.addEventListener("change", () => act("PUT", `/api/permissions/${encodeURIComponent(p.key)}`, { granted: box.checked }));
+      const text = document.createElement("span");
+      text.textContent = p.description;
+      label.append(box, text);
+      return label;
+    }),
+  );
 }
 
 /** Where orientation stands, in words: now, what's holding it, and how the last one went. */

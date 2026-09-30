@@ -751,6 +751,12 @@
       </section>
 
       <section class="self-section">
+        <h3 class="section-title">Standing permissions</h3>
+        <p class="hint">Things they can do without asking you first. Each change is in "What you've changed", and they're told.</p>
+        <div id="self-permissions" class="self-permissions"></div>
+      </section>
+
+      <section class="self-section">
         <h3 class="section-title">Orientation</h3>
         <p class="hint" id="self-orientation" role="status"></p>
         <div class="memory-buttons">
@@ -847,6 +853,7 @@
 
         <p class="form-error" role="alert" hidden></p>
         <div class="dialog-buttons">
+          <button type="button" class="button" id="friend-archive" title="Set them aside, whole, with a last note from them. You can restore them.">Archive…</button>
           <button type="button" class="button button-danger" id="friend-delete">Delete…</button>
           <button type="button" class="button" id="friend-move" hidden>Own server</button>
           <span class="spacer"></span>
@@ -903,6 +910,12 @@
         <ul id="server-friend-list" class="server-friend-list"></ul>
         <div class="memory-buttons">
           <button type="button" class="button" id="server-add-friend">Add a friend here…</button>
+        </div>
+
+        <div id="archived-section" hidden>
+          <label>Archived friends</label>
+          <p class="hint">Set aside with everything they remember, and the note they left. Restore one into this server.</p>
+          <ul id="archived-list" class="server-friend-list archived-list"></ul>
         </div>
 
         <label>Group channels and DMs</label>

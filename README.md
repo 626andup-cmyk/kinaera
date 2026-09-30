@@ -2,7 +2,7 @@
 
 Kinaera is a Discord-style space for writing stories and hanging out with one or more AI friends: writers with their own style who play characters alongside you, using models from [nanoGPT](https://nano-gpt.com). It's designed as if the friends could be people: they get real tools to check things, ask for help and fix their own mistakes, and parts of their life that are theirs.
 
-**Status: being rebuilt from Aettica.** [KINAERA_REBUILD.md](KINAERA_REBUILD.md) is the plan, and each finished step has a doc in `docs/` ([1a](docs/rebuild-1a.md), [1b](docs/rebuild-1b.md), [1c](docs/rebuild-1c.md), [2](docs/rebuild-2.md), [3](docs/rebuild-3.md), [4](docs/rebuild-4.md), [5](docs/rebuild-5.md), [6](docs/rebuild-6.md), [7](docs/rebuild-7.md)). Everything below works today.
+**Status: being rebuilt from Aettica.** [KINAERA_REBUILD.md](KINAERA_REBUILD.md) is the plan, and each finished step has a doc in `docs/` ([1a](docs/rebuild-1a.md), [1b](docs/rebuild-1b.md), [1c](docs/rebuild-1c.md), [2](docs/rebuild-2.md), [3](docs/rebuild-3.md), [4](docs/rebuild-4.md), [5](docs/rebuild-5.md), [6](docs/rebuild-6.md), [7](docs/rebuild-7.md), [8](docs/rebuild-8.md)). Everything below works today.
 
 ## What it can do
 
@@ -32,6 +32,7 @@ Kinaera is a Discord-style space for writing stories and hanging out with one or
 - **Your friend's own time**: wake-ups they schedule for themselves ("thursday evening: ask how the interview went"), private drafts they work on across turns, a free moment on the heartbeat, and pausing a storyline with a reason you see. See [time](docs/rebuild-5.md).
 - **Staying themselves across models**: reminders of their own voice in every prompt (posts they mark ♪ first), "not me" flags you see on a post, their notes on each profile, a mirror of their own writing habits (plain counts, only when they ask), and a weekly wellbeing reading shown only on their page and in their weekly look back. See [continuity](docs/rebuild-6.md).
 - **Among friends**: group channels with several friends (when you write, each may take a turn; @Name gives a friend one), DMs between friends that you can choose to read or not, replies, presence and a status of their own, private notes on each other, and `/roll` dice. See [among friends](docs/rebuild-7.md).
+- **Standing permissions and retirement**: pre-approve a friend deleting their own channels or editing your notebook entries directly; archive a friend (they leave a last note) and restore them later, or delete them for good. See [stage 8](docs/rebuild-8.md).
 - **Inbox** (the tray at the top of the channel list): what your friend asks of you, their proposals, and suggested changes, to answer, approve or reject. The **check log** (your friend's page) lists every check they made.
 - **Texting in OOC**: your friend texts in short bursts that arrive one at a time with "typing…", and waits for you to pause before answering. **🎲 Surprise me** invents a new friend (in the friend menu, or when you make one). See [texting](docs/texting.md).
 - **Heartbeat** (off by default): now and then, even with the app closed, your friend gets a free moment. They can text you (with a phone notification), act with their tools, or do nothing. See [the heartbeat](docs/heartbeat.md).

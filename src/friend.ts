@@ -46,6 +46,7 @@ import { splitTexts } from "./texting.ts";
 import { VERBATIM_SLOTS } from "./verbatim.ts";
 import { localTime } from "./schedule.ts";
 import { voiceAnchors } from "./continuity.ts";
+import { describeGrants } from "./standing.ts";
 import { wording } from "./wording.ts";
 import type { Store } from "./store.ts";
 import { extractTextToolCalls, parseArguments, type ParsedCall } from "./toolcalls.ts";
@@ -259,6 +260,7 @@ export function promptForChannel(store: Store, channelId: string, options: Promp
       waiting: store.schedule.waiting().map((w) => ({ id: w.id, at: w.at, note: w.note, channel: channelName(w.channelId) })),
     },
     // Never the messages already here, nor ones this turn replaces (a regeneration).
+    permissions: describeGrants(store),
     // Group channels and DMs: who's in this one, and in each (src/groups.ts).
     group: isShared(channel) ? (options.groups?.info(channel.id) ?? null) : null,
     shared: Object.fromEntries(channels.filter(isShared).map((c) => [c.id, options.groups?.info(c.id) ?? null])),

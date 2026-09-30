@@ -36,6 +36,7 @@ import { Drafts } from "./drafts.ts";
 import { Continuity } from "./continuity.ts";
 import { Wellbeing } from "./wellbeing.ts";
 import { Relationships } from "./relationships.ts";
+import { granted } from "./standing.ts";
 import { queueOrientation } from "./orientation.ts";
 import { parseSections } from "./wording.ts";
 import type {
@@ -667,6 +668,8 @@ export class Store {
     this.continuity = new Continuity(this.db);
     this.wellbeing = new Wellbeing(this.db);
     this.relationships = new Relationships(this.db);
+    // Standing permission to edit your entries directly (src/standing.ts).
+    this.notebook.directEdits = () => granted(this, "edit-notebook");
 
     if (isNew) {
       this.seed(options.example ?? true);

@@ -130,6 +130,7 @@ import { keepAwake, Presence, TermuxNotifier, type Notifier } from "./notify.ts"
 import { DEFAULT_THEME, ThemeLibrary } from "./themes.ts";
 import { ENTRY_TEMPLATES } from "./notebook.ts";
 import { rollCommand } from "./dice.ts";
+import { permissionViews, setGrant } from "./standing.ts";
 import {
   invitationNote,
   invited,
@@ -200,6 +201,8 @@ export interface App {
   heartbeat: Heartbeat;
   /** Orientation and the weekly look back (src/orientation.ts). */
   rhythms: Rhythms;
+  /** Their last turn before being archived: the note they wrote, or "". */
+  farewell: () => Promise<string>;
   /** Whether the app is on screen, as it last said (for notifications). */
   presence: Presence;
   notifier: Notifier;
@@ -433,6 +436,7 @@ export function createApp(config: Config): App {
       voiceMarks: store.continuity.voiceMarks().size,
       orientation: orientationState(),
       waiting: waitingOnFriend(),
+      permissions: permissionViews(store),
     };
   }
 
@@ -1231,6 +1235,18 @@ export function createApp(config: Config): App {
       },
     },
 
+    {
+      // Grant or take back a standing permission (src/standing.ts).
+      method: "PUT",
+      pattern: "/api/permissions/:key",
+      handler: async (request, { key }) => {
+        const body = await readObject(request);
+        if (typeof body.granted !== "boolean") throw new HttpError(400, '"granted" must be true or false.');
+        setGrant(store, key!, body.granted);
+        return json(friendPage());
+      },
+    },
+
     // ------------------------------------------------------------- inbox
     {
       method: "GET",
@@ -1517,7 +1533,24 @@ export function createApp(config: Config): App {
     }
   }
 
-  return { fetch, store, friend, themes, summarizer, decider, wakeups, heartbeat, rhythms, presence, notifier };
+  /**
+   * Their last turn before being archived (src/hub.ts): a note in their
+   * OOC channel, kept with the archive. No hard rules: it's asked for.
+   * Never throws; "" if they wrote nothing (or it failed).
+   */
+  async function farewell(): Promise<string> {
+    const ooc = store.listChannels().find((c) => c.kind === "ooc");
+    if (!ooc || !config.apiKey) return "";
+    try {
+      const result = await friend.takeTurn(ooc.id, "wake", { wake: { reason: "farewell", sinceUser: null, waiting: [] } });
+      return result.messages.map((m) => m.content).join("\n");
+    } catch (error) {
+      console.warn(`[archive] their last turn failed: ${error instanceof Error ? error.message : error}`);
+      return "";
+    }
+  }
+
+  return { fetch, store, friend, themes, summarizer, decider, wakeups, heartbeat, rhythms, presence, notifier, farewell };
 }
 
 /**

@@ -54,6 +54,11 @@ export interface HubFriend {
   id: string;
   /** Their folder, relative to the data folder ("." for the first friend). */
   dir: string;
+  /**
+   * Archived (retired, section 6.12): set aside with everything they
+   * remember, and their last note. Not loaded until restored.
+   */
+  archived?: { at: string; note: string; name: string; avatar: string; color: number };
 }
 
 interface Registry {
@@ -169,7 +174,7 @@ export function createHub(config: Config, makeApp: (config: Config) => App = cre
     if (started) startApp(app);
     return app;
   }
-  for (const friend of registry.friends) open(friend);
+  for (const friend of registry.friends) if (!friend.archived) open(friend);
 
   function startApp(app: App): void {
     app.summarizer.scheduleAll(15_000);
@@ -242,7 +247,11 @@ export function createHub(config: Config, makeApp: (config: Config) => App = cre
   }
 
   function view() {
-    return { servers: registry.servers.map((s) => ({ ...s, friends: s.friends.map(summary), groups: groupViews(s.id) })) };
+    return {
+      servers: registry.servers.map((s) => ({ ...s, friends: s.friends.map(summary), groups: groupViews(s.id) })),
+      // Retired friends, with the note they left.
+      archived: registry.friends.filter((f) => f.archived).map((f) => ({ id: f.id, ...f.archived! })),
+    };
   }
 
   // ------------------------------------------------------- new friends
@@ -303,11 +312,15 @@ export function createHub(config: Config, makeApp: (config: Config) => App = cre
 
   /** Remove a friend from everywhere; their files go to the trash. */
   function deleteFriend(id: string): void {
-    if (registry.friends.length === 1) throw new HubError(400, "You need at least one friend, so the last one can't be deleted.");
-    const app = friendApp(id);
-    const friend = registry.friends.find((p) => p.id === id)!;
-    stopApp(app);
-    apps.delete(id);
+    const friend = registry.friends.find((p) => p.id === id);
+    if (!friend) throw new HubError(404, "There's no such friend.");
+    if (!friend.archived && registry.friends.filter((p) => !p.archived).length === 1) {
+      throw new HubError(400, "You need at least one friend, so the last one can't be deleted.");
+    }
+    if (!friend.archived) {
+      stopApp(friendApp(id));
+      apps.delete(id);
+    }
     removeFriendFiles(friend);
     registry.friends = registry.friends.filter((p) => p.id !== id);
     groups.friendGone(id);
@@ -411,12 +424,39 @@ export function createHub(config: Config, makeApp: (config: Config) => App = cre
 
     if (parts[0] === "friends" && parts[1]) {
       const id = parts[1];
-      friendApp(id);
+      const entry = registry.friends.find((f) => f.id === id);
+      if (!entry) throw new HubError(404, "There's no such friend.");
       if (method === "DELETE" && parts.length === 2) {
         deleteFriend(id);
         save();
         return json(view());
       }
+      if (method === "POST" && parts[2] === "archive" && !entry.archived) {
+        // Retire them: one last turn for a note, then set aside, whole.
+        if (registry.friends.filter((f) => !f.archived).length === 1) throw new HubError(400, "You need at least one friend who isn't archived.");
+        const app = friendApp(id);
+        const note = await app.farewell();
+        const settings = app.store.getSettings();
+        entry.archived = { at: new Date().toISOString(), note, name: settings.friendName, avatar: settings.friendAvatar, color: settings.friendColor };
+        stopApp(app);
+        apps.delete(id);
+        for (const s of registry.servers) s.friends = s.friends.filter((p) => p !== id);
+        registry.servers = registry.servers.filter((s) => s.friends.length > 0);
+        save();
+        return json({ note, ...view() });
+      }
+      if (method === "POST" && parts[2] === "restore" && entry.archived) {
+        // Back, into a server (this one, or one of their own), exactly as they were.
+        const to = (await body(request)).serverId;
+        const into = typeof to === "string" ? server(to) : null; // 404 before anything changes
+        delete entry.archived;
+        open(entry);
+        if (into) into.friends.push(id);
+        else registry.servers.push({ id: crypto.randomUUID(), name: "", friends: [id] });
+        save();
+        return json(view());
+      }
+      friendApp(id);
       if (method === "POST" && parts[2] === "move") {
         // Move a friend to another server, or into a server of their own.
         const to = (await body(request)).serverId;

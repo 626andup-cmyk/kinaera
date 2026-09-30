@@ -24,7 +24,9 @@ export const FRIEND_KEY = "kinaera.friend";
 /** The servers and their friends (with each friend's channels and news), from the hub. */
 export async function loadHub() {
   try {
-    state.hub = (await api("GET", "/api/hub")).servers;
+    const data = await api("GET", "/api/hub");
+    state.hub = data.servers;
+    state.archived = data.archived ?? [];
   } catch {
     state.hub = state.hub ?? [];
   }
@@ -249,9 +251,32 @@ async function surpriseFriend() {
   }
 }
 
+/**
+ * Retire the open friend (section 6.12): they get one last turn to leave a
+ * note, then they're set aside, whole, until you restore them.
+ */
+async function archiveFriend() {
+  const name = state.settings.friendName;
+  if (!confirm(`Archive ${name}? They get one last turn to write a note, then they're set aside with everything they remember. You can restore them from server settings.`)) return;
+  const button = $("friend-archive");
+  button.disabled = true;
+  button.textContent = `Saying goodbye…`;
+  try {
+    const { note } = await api("POST", `/api/hub/friends/${encodeURIComponent(state.friendId)}/archive`, {});
+    alert(note ? `${name} left a note:\n\n${note}` : `${name} didn't leave a note.`);
+    writeLocal(FRIEND_KEY, "");
+    history.replaceState(null, "", location.pathname);
+    location.reload();
+  } catch (error) {
+    showFormError($("friend-form"), error.message);
+    button.disabled = false;
+    button.textContent = "Archive…";
+  }
+}
+
 async function deleteFriend() {
   const name = state.settings.friendName;
-  if (!confirm(`Delete ${name}? Their notebook, channels and everything they remember go too. (Their files are kept in the data folder's trash, just in case.)`)) return;
+  if (!confirm(`Delete ${name} for good? Their notebook, channels and everything they remember go too. (Archiving keeps them instead.) Their files are kept in the data folder's trash, just in case.`)) return;
   if (prompt(`Type ${name} to confirm.`)?.trim() !== name) return;
   try {
     await api("DELETE", `/api/hub/friends/${encodeURIComponent(state.friendId)}`, {});
@@ -354,8 +379,59 @@ function openServerSettings() {
   );
   $("server-delete").hidden = state.hub.length < 2;
   renderServerGroups(server);
+  renderArchived(server);
   hideFormError($("server-form"));
   $("server-dialog").showModal();
+}
+
+/** Archived friends, each with their note: restore into this server, or delete for good. */
+function renderArchived(server) {
+  const archived = state.archived ?? [];
+  $("archived-section").hidden = archived.length === 0;
+  $("archived-list").replaceChildren(
+    ...archived.map((friend) => {
+      const item = document.createElement("li");
+      const face = document.createElement("span");
+      face.className = "avatar";
+      paintAvatar(face, friend);
+      const text = document.createElement("div");
+      const name = document.createElement("strong");
+      name.textContent = friend.name;
+      const note = document.createElement("div");
+      note.className = "hint";
+      note.textContent = friend.note ? `“${friend.note}”` : "No note.";
+      text.append(name, note);
+      const restore = document.createElement("button");
+      restore.type = "button";
+      restore.className = "link-button";
+      restore.textContent = "Restore";
+      restore.addEventListener("click", async () => {
+        try {
+          await api("POST", `/api/hub/friends/${encodeURIComponent(friend.id)}/restore`, { serverId: server.id });
+          switchFriend(friend.id);
+        } catch (error) {
+          showFormError($("server-form"), error.message);
+        }
+      });
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "link-button";
+      remove.textContent = "Delete for good";
+      remove.addEventListener("click", async () => {
+        if (!confirm(`Delete ${friend.name} for good? Everything they remember goes. (Their files go to the data folder's trash.)`)) return;
+        if (prompt(`Type ${friend.name} to confirm.`)?.trim() !== friend.name) return;
+        try {
+          const data = await api("DELETE", `/api/hub/friends/${encodeURIComponent(friend.id)}`, {});
+          state.archived = data.archived;
+          renderArchived(server);
+        } catch (error) {
+          showFormError($("server-form"), error.message);
+        }
+      });
+      item.append(face, text, restore, remove);
+      return item;
+    }),
+  );
 }
 
 async function saveServer(event) {
@@ -394,6 +470,7 @@ $("friend-form").addEventListener("input", previewFriendLook);
 $("friend-form").elements.oocBubbles.addEventListener("change", updateTextingOnly);
 $("surprise-friend").addEventListener("click", surpriseFriend);
 $("friend-delete").addEventListener("click", deleteFriend);
+$("friend-archive").addEventListener("click", archiveFriend);
 $("friend-move").addEventListener("click", moveFriendOut);
 $("new-friend-form").addEventListener("submit", createFriend);
 $("new-friend-surprise").addEventListener("click", surpriseNewFriend);
