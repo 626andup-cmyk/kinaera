@@ -70,6 +70,26 @@ Asks made during an orientation are marked "(orientation)" in your inbox. Orient
 
 Drafts and scheduling your own wake-ups are part of the guide's orientation, but they arrive in stage 5.
 
+## Acting on one channel from another
+
+This isn't in the guide. You asked for it after stage 4. What's said in one channel can lead your friend to write in another:
+
+- `post_in_channel({ channel, text, new_scene? })` posts in another channel. It works from any turn, a wake-up included, and besides their reply here. Examples: asking you something in #ooc about a story, or opening a scene in #story after planning it in #ooc. In a roleplay channel it's a post as their characters, in that scene's style, and `new_scene` starts a new scene first. In OOC it's texts, as usual. Their reply in the channel they're in is still separate.
+- `read_recent_messages({ channel, count? })` reads another channel's newest messages first. `read_channel_summary` gives the longer view.
+
+**Limits:**
+
+- It can't be used on the channel they're in: there, they just reply.
+- It's once per channel per turn.
+- It's refused while they're already writing in that channel.
+- It's never from or into the practice channel.
+
+**What you see and get:**
+
+- The tool line under their message says where they posted. The other channel gets its unread dot.
+- If the app isn't open, you get a phone notification, as for a wake-up.
+- A wake-up that only posts elsewhere counts as writing to you, so "no double texts" still holds.
+
 ## Storage and API
 
 Migration 4 in `src/db.ts` makes these changes:
@@ -105,3 +125,5 @@ New routes:
 - the practice channel's isolation;
 - orientation on creation, on request, by invitation and for a new profile;
 - the weekly look back.
+
+`test/elsewhere.test.ts` covers `post_in_channel` and `read_recent_messages`.

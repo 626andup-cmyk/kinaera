@@ -22,7 +22,8 @@
 
 import { CHECK_SOURCES, DEFAULT_SOURCES, runCheck, type CheckSource } from "./check.ts";
 import { NotFoundError, PermissionError, ValidationError } from "./errors.ts";
-import { pickProfile, profileRequest, promptManifest } from "./friend.ts";
+import { friendCharacterNames, pickProfile, profileRequest, promptManifest } from "./friend.ts";
+import { replyToMessages } from "./posts.ts";
 import { queueOrientation } from "./orientation.ts";
 import { VERBATIM_SLOTS } from "./verbatim.ts";
 import { ASK_KIND_NAMES, ASK_KINDS, type AskKind } from "./inbox.ts";
@@ -47,10 +48,17 @@ export interface ToolContext {
   decider?: Decider;
   /** The API, for `consult`. Without it, `consult` isn't offered. */
   api?: ApiOptions;
-  /** Counts for this turn, for its limits (one `consult` per turn). */
-  turn?: { consults: number };
+  /** Counts for this turn, for its limits (one `consult` per turn, one post per other channel). */
+  turn?: { consults: number; postedIn?: string[] };
   /** Why this turn is happening, if it's a turn of their own (asks in an orientation are marked). */
   wake?: string;
+  /** The model writing this turn, for messages posted in other channels. */
+  model?: string;
+  profileName?: string;
+  /** Whether your friend is already writing in a channel (another turn). */
+  isBusy?: (channelId: string) => boolean;
+  /** Told about messages posted in another channel (a phone notification, if the app isn't open). */
+  onPosted?: (channel: Channel, messages: Message[]) => void;
 }
 
 /** What running a tool produced. */
@@ -1237,6 +1245,82 @@ OWN.push(
     run: ({ store }, args) => {
       queueOrientation(store, maybe(args, "focus"));
       return { result: { queued: true, note: "It starts as its own turn in your practice channel, soon." }, summary: "started an orientation" };
+    },
+  },
+);
+
+// ---------------------------------------------------- other channels
+
+/** How many recent messages read_recent_messages gives at most. */
+const RECENT_LIMIT = 30;
+
+OWN.push(
+  {
+    name: "read_recent_messages",
+    description:
+      "Read the newest messages in another channel, oldest first, for when something there matters here, or before you post there (post_in_channel).",
+    parameters: object(
+      {
+        channel: str("The channel, like #story."),
+        count: { type: "integer", description: `How many of the newest messages (default 10, at most ${RECENT_LIMIT}).` },
+      },
+      ["channel"],
+    ),
+    run: (ctx, args) => {
+      const channel = findChannel(ctx, need(args, "channel"));
+      const count = args.count === undefined || args.count === null ? 10 : Math.min(RECENT_LIMIT, Math.max(1, wholeNumber(args.count, "count")));
+      const messages = ctx.store.getMessages(channel.id).slice(-count);
+      return {
+        result: {
+          channel: hash(channel),
+          messages: messages.map((m) =>
+            m.kind === "scene_break"
+              ? { scene_break: m.content || "(untitled)", when: ago(m.createdAt) }
+              : { from: m.author === "friend" ? "you" : "the user", ...(m.characters.length ? { as: m.characters.join(", ") } : {}), when: ago(m.createdAt), text: m.content },
+          ),
+        },
+        summary: `read the newest messages in ${hash(channel)}`,
+      };
+    },
+  },
+  {
+    name: "post_in_channel",
+    description:
+      "Post a message in another channel, besides (or instead of) your reply here. For when something here leads somewhere else: asking the user something in an OOC channel about a story, or opening a scene in a roleplay channel after planning it here. Write it as it belongs there: in a roleplay channel, a post in that scene's style, as your characters; in OOC, as yourself (texts split with <cht> if you text). Optionally start a new scene there first. Once per channel per turn.",
+    parameters: object(
+      {
+        channel: str("The channel to post in, like #story. Not this one: here, just reply."),
+        text: str("The message."),
+        new_scene: str("Roleplay channels only, optional: start a new scene before your post, with this title."),
+      },
+      ["channel", "text"],
+    ),
+    available: (ctx) => ctx.channel.kind !== "practice",
+    run: (ctx, args) => {
+      const channel = findChannel(ctx, need(args, "channel"));
+      if (channel.id === ctx.channel.id) throw new ToolError("That's this channel: just write your reply here.");
+      if (ctx.turn?.postedIn?.includes(channel.id)) throw new ToolError(`You've already posted in ${hash(channel)} this turn.`);
+      if (ctx.isBusy?.(channel.id)) throw new ToolError(`You're already writing in ${hash(channel)} (another turn). Try again later.`);
+      const text = need(args, "text").trim();
+      const title = maybe(args, "new_scene");
+      if (title !== undefined && channel.kind !== "rp") throw new ToolError("Only roleplay channels have scenes.");
+      if (title !== undefined) ctx.store.addSceneBreak(channel.id, "friend", title);
+      // Re-read the channel: a new scene may have switched its mode.
+      const current = ctx.store.getChannel(channel.id);
+      const voices = friendCharacterNames(ctx.store, channel.id).map((name) => ({ name }));
+      const messages = ctx.store.addTurn(
+        replyToMessages(current, text, ctx.model ?? "", voices).map((m) => ({ ...m, ...(ctx.profileName ? { profile: ctx.profileName } : {}) })),
+      );
+      if (ctx.turn) ctx.turn.postedIn = [...(ctx.turn.postedIn ?? []), channel.id];
+      try {
+        ctx.onPosted?.(current, messages);
+      } catch (error) {
+        console.warn("[tools] couldn't pass on a post", error);
+      }
+      return {
+        result: { posted: true, channel: hash(channel), ...(title !== undefined ? { new_scene: title } : {}), note: "The user sees it there. Your reply here is separate." },
+        summary: `${title !== undefined ? `started a scene ("${snip(title)}") and ` : ""}posted in ${hash(channel)}: "${snip(text)}"`,
+      };
     },
   },
 );

@@ -295,6 +295,9 @@ export function createApp(config: Config): App {
     const text = messages.map((m) => m.content).join("\n");
     notifier.notify({ title: `${store.getSettings().friendName} in #${channel.name}`, text, channelId: channel.id, friendId: config.friendId });
   };
+  // …and so does a post in another channel (post_in_channel), whatever
+  // started the turn: you weren't looking there.
+  friend.onPostedElsewhere = (channel, messages) => wakeups.onPosted?.(channel, messages);
   const autoWake = config.autoWake ?? true;
 
   /**

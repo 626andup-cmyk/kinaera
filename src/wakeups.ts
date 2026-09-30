@@ -302,12 +302,14 @@ export class Wakeups {
 
     try {
       const result = await this.friend.takeTurn(channel.id, "wake", { wake: context });
-      const wrote = result.messages.length > 0;
+      // Posting in another channel (post_in_channel) is writing to you too.
+      const wrote = result.messages.length > 0 || result.toolCalls.some((c) => c.name === "post_in_channel" && c.status === "ok");
       const acted = result.toolCalls.filter((c) => c.status === "ok").map((c) => c.summary);
       const why = wrote ? (OWN_TIME.includes(reason) ? "They wrote in their practice channel." : "They wrote to you.") : acted.length ? `They acted (${acted.join("; ")}) and didn't write.` : "They chose not to write.";
       const logged = { ...this.log(reason, wrote ? "posted" : "quiet", channel, why), messages: result.messages };
       // Writing in the practice channel messages no one: no notification.
-      if (wrote && !OWN_TIME.includes(reason)) {
+      // (A post in another channel was notified as it was made.)
+      if (result.messages.length > 0 && !OWN_TIME.includes(reason)) {
         try {
           this.onPosted?.(channel, result.messages);
         } catch (error) {

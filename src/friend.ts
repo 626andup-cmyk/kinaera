@@ -488,6 +488,9 @@ export class Friend {
   /** Jev, for the `check` tool, once the server has set it up. */
   decider: Decider | null = null;
 
+  /** Told when your friend posts in another channel mid-turn (`post_in_channel`), for notifications. */
+  onPostedElsewhere: ((channel: Channel, messages: Message[]) => void) | null = null;
+
   constructor(
     private readonly store: Store,
     /** The API it writes with (also used for `consult`). */
@@ -575,6 +578,10 @@ export class Friend {
         api: this.api,
         turn: { consults: 0 },
         wake: options.wake?.reason,
+        model: profile.model,
+        profileName: profile.name,
+        isBusy: (id) => this.isBusy(id),
+        onPosted: (where, messages) => this.onPostedElsewhere?.(where, messages),
       };
       const tools = profile.supportsTools ? toolSpecs(context) : [];
       const turnId = crypto.randomUUID();
