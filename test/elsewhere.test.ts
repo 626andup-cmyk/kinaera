@@ -92,7 +92,7 @@ describe("posting in another channel", () => {
     const told: string[] = [];
     wakeups.onPosted = (channel, messages) => told.push(`${channel.name}: ${messages.map((m) => m.content).join(" ")}`);
     app.friend.onPostedElsewhere = (channel, messages) => wakeups.onPosted?.(channel, messages);
-    app.store.addTurn([{ channelId: ooc.id, author: "user", content: "morning", createdAt: new Date(now.getTime() - 5 * 3_600_000).toISOString() }]);
+    app.store.addMessage({ channelId: ooc.id, author: "user", content: "morning", createdAt: new Date(now.getTime() - 5 * 3_600_000).toISOString() });
     fake.replies.push({ toolCalls: [{ name: "post_in_channel", arguments: { channel: "story", text: "The fog lifts." } }] }, { content: "[nothing]" });
     const result = await wakeups.event("heartbeat");
     expect(result).toMatchObject({ outcome: "posted" });
