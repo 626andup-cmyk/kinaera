@@ -70,12 +70,16 @@ Asks made during an orientation are marked "(orientation)" in your inbox. Orient
 
 **Telling where it stands.** Their page says, and keeps it up to date while open:
 
+- what happened to your invitation, in plain words. For example:
+  - they were given a turn to answer, or couldn't be (and why);
+  - they answered without calling `start_orientation`;
+  - the turn was written by a profile that can't use tools. They aren't told on such a turn, since they couldn't answer, and the invitation keeps waiting;
 - whether they're invited and haven't answered yet;
 - whether they've said yes and it's waiting to start, and what's holding it (quiet hours, the cooldown, a profile without tools);
 - whether it's running now;
 - how the last one went and when, plus what they said to your last invitation.
 
-**Open #practice** takes you there. The practice channel also gets an unread dot when they write in it, and orientations are listed under Settings → Recent wake-ups.
+**Open #practice** takes you there. The practice channel also gets an unread dot when they write in it, and orientations are listed under Settings → Recent wake-ups. Every wake-up a rule stops is now printed in the server's log (`[wake] review skipped: …`), and so is what happened to an invitation (`[orientation] …`).
 
 Drafts and scheduling your own wake-ups are part of the guide's orientation, but they arrive in stage 5.
 

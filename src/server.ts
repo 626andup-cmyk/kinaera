@@ -129,7 +129,16 @@ import { describeSeeds, randomFriend, rollSeeds } from "./rng.ts";
 import { keepAwake, Presence, TermuxNotifier, type Notifier } from "./notify.ts";
 import { DEFAULT_THEME, ThemeLibrary } from "./themes.ts";
 import { ENTRY_TEMPLATES } from "./notebook.ts";
-import { invited, inviteToOrientation, noteNewProfiles, orientationHeld, pendingOrientation, Rhythms } from "./orientation.ts";
+import {
+  invitationNote,
+  invited,
+  inviteToOrientation,
+  noteNewProfiles,
+  orientationHeld,
+  pendingOrientation,
+  Rhythms,
+  setInvitationNote,
+} from "./orientation.ts";
 import type { CastMember, Channel, Message, Settings } from "./types.ts";
 import { PermissionError } from "./errors.ts";
 import {
@@ -390,6 +399,8 @@ export function createApp(config: Config): App {
       practiceId: practice?.id ?? null,
       last: last ? { at: last.at, outcome: last.outcome, detail: last.detail } : null,
       lastInvitation: store.appState.get("orientation.invite-result"),
+      // What happened to your invitation, in words (see src/orientation.ts).
+      note: invitationNote(store),
     };
   }
 
@@ -1128,7 +1139,15 @@ export function createApp(config: Config): App {
         inviteToOrientation(store);
         // They answer on a turn of their own, soon, rather than whenever you
         // next write (if the hard rules allow; otherwise on their next turn).
-        suggested();
+        // Either way, you're told which.
+        const blocked = !autoWake ? "wake-ups are off on this server" : wakeups.blocked("review");
+        setInvitationNote(
+          store,
+          blocked
+            ? `Invited. They couldn't be given a turn now (${blocked.replace(/\.$/, "")}), so they'll see it on their next turn: when you next write to them, or their next wake-up.`
+            : "Invited. They're being given a turn now to answer.",
+        );
+        if (!blocked) void wakeups.event("review");
         return json(friendPage());
       },
     },

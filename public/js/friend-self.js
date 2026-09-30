@@ -146,12 +146,14 @@ function renderOrientation() {
     lines.push(`${friend} is starting an orientation in #practice. It's checked every minute.`);
     if (o.held) lines.push(`Not yet, because: ${o.held}`);
   } else if (o.invited) {
-    lines.push(`You've invited ${friend}. They answer on their next turn (it gives them one soon, if the hard rules allow). Starting one is a yes; not starting one then is a no.`);
+    lines.push(`You've invited ${friend}, and they haven't answered yet. Starting one is a yes; not starting one on the turn where they're told is a no.`);
   } else {
     lines.push(`A turn of their own for trying their tools and finding what suits them. You can invite ${friend}; they can say no.`);
     const answer = { accepted: `${friend} said yes to your last invitation.`, declined: `${friend} passed on your last invitation (they didn't start one on the turn after it).` }[o.lastInvitation];
     if (answer) lines.push(answer);
   }
+  // What happened to your invitation, in plain words (from the server).
+  if (o.note) lines.push(o.note);
   if (o.last) {
     const how = { posted: "wrote in #practice", quiet: "didn't write anything there", failed: "failed" }[o.last.outcome] ?? o.last.outcome;
     lines.push(`Last orientation: ${formatTime(o.last.at)}, ${how}.${o.last.outcome === "failed" ? ` ${o.last.detail}` : ""}`);

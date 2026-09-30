@@ -200,7 +200,11 @@ export class Wakeups {
    * @param detail  For "scene-ended": the channel and the scene break.
    */
   async event(event: WakeEvent, detail: WakeDetail = {}): Promise<WakeResult> {
-    const skip = (why: string): WakeResult => ({ outcome: null, reason: null, detail: why, messages: [] });
+    const skip = (why: string): WakeResult => {
+      // Not in the wake-up log (that's turns), but never silent.
+      console.log(`[wake] ${event} skipped: ${why}`);
+      return { outcome: null, reason: null, detail: why, messages: [] };
+    };
     if (this.running) return skip("Your friend is already waking up.");
     this.running = true;
     try {

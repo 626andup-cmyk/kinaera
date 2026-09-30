@@ -232,15 +232,19 @@ export function promptForChannel(store: Store, channelId: string, options: Promp
     journal,
     verbatim,
     editMarkers: store.selfPage.editMarkers(),
-    notices: noticesFor(store),
+    notices: noticesFor(store, tools),
   });
 }
 
-/** Things your friend should know this turn, once: an orientation invitation, a new profile. */
-export function noticesFor(store: Store): string[] {
+/**
+ * Things your friend should know this turn, once: an orientation invitation
+ * (only on a turn with tools, since answering it takes start_orientation),
+ * a new profile.
+ */
+export function noticesFor(store: Store, tools = true): string[] {
   const notices: string[] = [];
   const words = wording("orientation");
-  if (store.appState.get("orientation.invited")) notices.push(words.invitation ?? "The user invited you to an orientation.");
+  if (tools && store.appState.get("orientation.invited")) notices.push(words.invitation ?? "The user invited you to an orientation.");
   const names = store.appState.get(NEW_PROFILE);
   if (names) notices.push((words["new-profile"] ?? "A new profile joined your roulette: {names}.").replace("{names}", names));
   return notices;
@@ -598,7 +602,7 @@ export class Friend {
       // don't save it.
       if (controller.signal.aborted) throw new CancelledError();
       this.store.inbox.markDelivered(delivering);
-      if (carriesInvitation) settleInvitation(this.store);
+      if (carriesInvitation) settleInvitation(this.store, { tools: tools.length > 0, profile: profile.name, channel: channel.name });
       // Told once (unless another joined in the meantime).
       if (newProfiles && this.store.appState.get(NEW_PROFILE) === newProfiles) this.store.appState.set(NEW_PROFILE, null);
       const seconds = ((Date.now() - started) / 1000).toFixed(1);

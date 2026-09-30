@@ -64,14 +64,43 @@ export function invited(store: Store): boolean {
   return store.appState.get(INVITED) !== null;
 }
 
+/** What's happened to your invitation that you should know (it's shown on the friend page). */
+const INVITE_NOTE = "orientation.invite-note";
+
+export function invitationNote(store: Store): string | null {
+  return store.appState.get(INVITE_NOTE);
+}
+
+export function setInvitationNote(store: Store, note: string | null): void {
+  store.appState.set(INVITE_NOTE, note);
+  if (note) console.log(`[orientation] ${note}`);
+}
+
 /**
- * After a turn that carried the invitation: it's answered. Starting an
- * orientation (queued) is a yes; anything else is a no, for now.
+ * After a turn of your friend's while an invitation is waiting. On a turn
+ * with tools, they were told: starting an orientation (queued) is a yes,
+ * anything else a no. On a turn without tools (a profile that can't use
+ * them), they couldn't have started one, so they weren't told, and the
+ * invitation keeps waiting; the friend page says why.
  */
-export function settleInvitation(store: Store): void {
+export function settleInvitation(store: Store, turn: { tools: boolean; profile: string; channel: string }): void {
   if (!invited(store)) return;
+  if (!turn.tools) {
+    setInvitationNote(
+      store,
+      `Their turn in #${turn.channel} was written by "${turn.profile}", which can't use tools, so they couldn't start an orientation and weren't told about it. The invitation waits for a turn written by a profile that can (switch on "Can use tools" for it in Settings → Profiles, if the model supports it).`,
+    );
+    return;
+  }
+  const answer = pendingOrientation(store) ? "accepted" : "declined";
   store.appState.set(INVITED, null);
-  store.appState.set("orientation.invite-result", pendingOrientation(store) ? "accepted" : "declined");
+  store.appState.set("orientation.invite-result", answer);
+  setInvitationNote(
+    store,
+    answer === "accepted"
+      ? `They said yes in #${turn.channel} ("${turn.profile}").`
+      : `They answered in #${turn.channel} ("${turn.profile}") without calling start_orientation, which counts as a no.`,
+  );
 }
 
 /** Where a profile new to a roulette is noted, until your friend's next turn. */

@@ -285,6 +285,28 @@ describe("orientation", () => {
     expect(systemPrompt()).not.toContain("invited you to an orientation");
   });
 
+  test("a turn by a profile without tools can't answer it: it keeps waiting, and the page says why", async () => {
+    app.store.appState.set("orientation.pending", null);
+    const profile = app.store.profiles.list()[0]!;
+    await call("PATCH", `/api/profiles/${profile.id}`, { supportsTools: false });
+    const invite = (await call("POST", "/api/orientation/invite", {})).data.orientation;
+    // Tests don't wake by themselves, so it says they'll see it on their next turn.
+    expect(invite.note).toContain("they'll see it on their next turn");
+    await call("POST", `/api/channels/${ooc.id}/turn`, {});
+    // Not told (they couldn't have answered), so not a no.
+    expect(JSON.stringify(fake.requests.at(-1)!.messages)).not.toContain("invited you to an orientation");
+    const after = (await call("GET", "/api/friend-page")).data.orientation;
+    expect(after).toMatchObject({ invited: true });
+    expect(after.note).toContain("can't use tools");
+  });
+
+  test("answering without start_orientation is said plainly", async () => {
+    app.store.appState.set("orientation.pending", null);
+    await call("POST", "/api/orientation/invite", {});
+    await call("POST", `/api/channels/${ooc.id}/turn`, {});
+    expect((await call("GET", "/api/friend-page")).data.orientation.note).toContain("without calling start_orientation");
+  });
+
   test("…and starting one is a yes", async () => {
     app.store.appState.set("orientation.pending", null);
     await call("POST", "/api/orientation/invite", {});
