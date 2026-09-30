@@ -396,10 +396,15 @@
           <label for="setting-heartbeat">Heartbeat</label>
           <p class="hint">
             Now and then, even with the app closed, your friend gets a free moment of their own. They can text you,
-            act with their tools, or do nothing. Set quiet hours above so it never wakes you.
+            act with their tools, or do nothing. Set quiet hours above so it never wakes you. The hard rules still
+            apply to every beat: a short heartbeat does little unless the cooldown above is short too.
           </p>
           <select id="setting-heartbeat" name="heartbeatHours">
             <option value="0">Off</option>
+            <option value="0.1667">About every 10 minutes</option>
+            <option value="0.25">About every 15 minutes</option>
+            <option value="0.5">About every 30 minutes</option>
+            <option value="1">About every hour</option>
             <option value="2">About every 2 hours</option>
             <option value="4">About every 4 hours</option>
             <option value="6">About every 6 hours</option>

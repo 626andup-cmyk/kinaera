@@ -146,7 +146,9 @@ describe("the API", () => {
     expect(app.presence.isVisible()).toBe(true);
     const state = (await call("GET", "/api/state")).data;
     expect(state.notifications).toBe(true);
-    expect((await call("PUT", "/api/settings", { heartbeatHours: 0.5 })).status).toBe(400);
+    // As short as every 5 minutes, and no shorter.
+    expect((await call("PUT", "/api/settings", { heartbeatHours: 0.1667 })).status).toBe(200);
+    expect((await call("PUT", "/api/settings", { heartbeatHours: 0.05 })).status).toBe(400);
     expect((await call("PUT", "/api/settings", { heartbeatHours: 200 })).status).toBe(400);
   });
 

@@ -6,7 +6,7 @@ The heartbeat is a timer that now and then gives your friend a free moment, even
 
 ## Using it
 
-- **Settings → Your friend reaching out → Heartbeat**: off by default, or about every 2, 4, 6, 8 or 12 hours, or once a day. Each gap varies by ±20%, so it never feels like clockwork.
+- **Settings → Your friend reaching out → Heartbeat**: off by default, or about every 10, 15 or 30 minutes, every hour, every 2, 4, 6, 8 or 12 hours, or once a day. Each gap varies by ±20%, so it never feels like clockwork. The server checks every minute whether a beat is due. A short heartbeat only helps with a short cooldown: every beat still goes through the hard rules below.
 - **Set quiet hours** in the same section, so it never wakes you at night.
 - **Beat now** (same section) runs a heartbeat straight away, to try it. The rules still apply.
 - **On your phone** (Termux), install Termux:API for notifications (see the README). When your friend writes on their own and the app isn't on screen, you get a notification, "Arlo in #ooc", and tapping it opens that channel.
@@ -35,7 +35,7 @@ When the next beat is due is kept in the `app_state` table (`src/appstate.ts`).
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| `heartbeatHours` | 0 (off) | About how often the heartbeat beats, in hours (1 to 168). Changing it starts the count again |
+| `heartbeatHours` | 0 (off) | About how often the heartbeat beats, in hours (5 minutes to 168 hours: 0.25 is every 15 minutes). Changing it starts the count again |
 
 The heartbeat also follows the wake-up settings: chattiness, quiet hours, the cooldown.
 

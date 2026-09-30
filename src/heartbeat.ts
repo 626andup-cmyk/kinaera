@@ -41,8 +41,8 @@ export class Heartbeat {
     private readonly random: () => number = Math.random,
   ) {}
 
-  /** Check every `checkMs` whether a beat is due. */
-  start(checkMs = 10 * 60_000): void {
+  /** Check every `checkMs` whether a beat is due (every minute, so short heartbeats keep time). */
+  start(checkMs = 60_000): void {
     this.stop();
     this.timer = setInterval(() => void this.tick(), checkMs);
     // Right away too: schedules the first beat (or beats, if one was due while the server was off).

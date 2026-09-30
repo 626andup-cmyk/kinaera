@@ -34,7 +34,8 @@ export function openSettings() {
   form.heartbeatHours.value = String(s.heartbeatHours);
   // A custom value (set some other way) still shows.
   if (form.heartbeatHours.value !== String(s.heartbeatHours)) {
-    form.heartbeatHours.append(new Option(`About every ${s.heartbeatHours} hours`, String(s.heartbeatHours)));
+    const every = s.heartbeatHours < 1 ? `${Math.round(s.heartbeatHours * 60)} minutes` : `${s.heartbeatHours} hours`;
+    form.heartbeatHours.append(new Option(`About every ${every}`, String(s.heartbeatHours)));
     form.heartbeatHours.value = String(s.heartbeatHours);
   }
   renderHeartbeatStatus();

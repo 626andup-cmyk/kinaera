@@ -205,7 +205,8 @@ export function validateSettings(input: unknown): Partial<Settings> {
   }
   if (raw.heartbeatHours !== undefined) {
     clean.heartbeatHours = numberInRange(raw.heartbeatHours, "heartbeatHours", LIMITS.heartbeatHours, false);
-    if (clean.heartbeatHours > 0 && clean.heartbeatHours < 1) throw new ValidationError("heartbeatHours must be 0 (off) or at least 1");
+    // Five minutes at the shortest (hours, so 0.25 is every 15 minutes).
+    if (clean.heartbeatHours > 0 && clean.heartbeatHours < 5 / 60) throw new ValidationError("heartbeatHours must be 0 (off) or at least 5 minutes (0.0834)");
   }
   if (raw.friendAvatar !== undefined) {
     if (typeof raw.friendAvatar !== "string" || [...raw.friendAvatar.trim()].length > 8) {
