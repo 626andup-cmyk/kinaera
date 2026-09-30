@@ -14,6 +14,9 @@ export function renderComposer() {
   if (!channel) return;
   // Their practice channel is theirs to write in: you can only read it.
   $("composer-form").hidden = channel.kind === "practice";
+  // A reply you started belongs to its channel: leaving it drops the reply.
+  if (state.replyingTo && state.replyingTo.channelId !== channel.id) state.replyingTo = null;
+  if (!state.replyingTo) $("reply-bar").hidden = true;
   // A storyline they paused: their word on it, shown above where you write.
   const banner = $("paused-banner");
   banner.hidden = !channel.paused;
@@ -22,7 +25,9 @@ export function renderComposer() {
   const busy = state.busy.has(channel.id);
   // "Writing" while the model works; "typing" while texts are revealed one by one.
   els.status.hidden = !busy && !state.reveal;
-  $("status-text").textContent = `${state.settings.friendName} is ${busy ? "writing" : "typing"}…`;
+  // "reading" while a tool call runs (looking something up), otherwise "writing".
+  const doing = busy ? (state.phases?.[channel.id] === "reading" ? "reading" : "writing") : "typing";
+  $("status-text").textContent = `${state.settings.friendName} is ${doing}…`;
   // Only a turn in progress can be stopped; "typing…" is skipped with a double-tap.
   $("stop-button").hidden = !busy;
   els.status.title = busy ? "" : "Double-tap to show the rest now";

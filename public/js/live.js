@@ -23,6 +23,9 @@ export async function loadState() {
   state.roulettes = data.roulettes;
   state.inbox = data.inbox ?? [];
   state.busy = new Set(data.busyChannels);
+  state.phases = data.phases ?? {};
+  state.presence = data.presence ?? "idle";
+  state.status = data.status ?? null;
   state.revision = data.revision;
   state.activity = data.activity ?? {};
   // The very first time, everything that's there counts as read.
@@ -107,6 +110,9 @@ export async function checkLive() {
   state.inbox = data.inbox ?? [];
   state.settings = data.settings;
   for (const channelId of data.busyChannels) state.busy.add(channelId);
+  state.phases = data.phases ?? {};
+  state.presence = data.presence ?? "idle";
+  state.status = data.status ?? null;
   const open = state.activity[state.channelId];
   const shown = state.messages.at(-1)?.id ?? null;
   // Reload the open channel if it changed (unless you're editing in it).

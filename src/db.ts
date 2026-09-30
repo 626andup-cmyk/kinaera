@@ -718,6 +718,22 @@ export const MIGRATIONS: Migration[] = [
     created_at TEXT NOT NULL
   );
   `,
+
+  // ---------------------------------------------------------------- 7
+  // Rebuild stage 7: among friends. Replies (a message can answer an
+  // earlier one, shown as a quoted preview), and your friend's private
+  // notes on the other friends (by their hub id).
+  `
+  ALTER TABLE messages ADD COLUMN reply_to TEXT;
+
+  CREATE TABLE relationships (
+    friend_id  TEXT PRIMARY KEY,
+    -- Their name when the note was last written.
+    name       TEXT NOT NULL,
+    note       TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  `,
 ];
 
 /**

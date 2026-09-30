@@ -49,6 +49,17 @@ export interface Config {
   userThemesDir?: string;
   friendId?: string;
   example?: boolean;
+  /**
+   * The other friends on this friend's server, from the hub: who else is
+   * here (their names only: never anything they remember).
+   */
+  peers?: () => Peer[];
+}
+
+/** Another friend on the same server. */
+export interface Peer {
+  id: string;
+  name: string;
 }
 
 /**

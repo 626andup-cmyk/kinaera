@@ -6,7 +6,7 @@
 
 import { autoGrow, renderComposer } from "./composer.js";
 import { api, channelPath, els, showError, state } from "./core.js";
-import { friendTurn, renderMessages, scrollToBottom, sendMessage } from "./messages.js";
+import { friendTurn, renderMessages, scrollToBottom, sendMessage, takeReply } from "./messages.js";
 
 // ------------------------------------------------------------- texting
 
@@ -24,6 +24,7 @@ import { friendTurn, renderMessages, scrollToBottom, sendMessage } from "./messa
 export async function sendText(channelId, content) {
   const attach = [...(state.attachments.get(channelId) ?? [])];
   state.attachments.delete(channelId);
+  const replyTo = takeReply(channelId);
   const placeholder = {
     id: "pending",
     channelId,
@@ -43,7 +44,7 @@ export async function sendText(channelId, content) {
   renderMessages();
   scrollToBottom();
   try {
-    const data = await api("POST", channelPath("messages", channelId), { content, attach, reply: false });
+    const data = await api("POST", channelPath("messages", channelId), { content, attach, replyTo, reply: false });
     const index = state.messages.indexOf(placeholder);
     if (index >= 0) state.messages.splice(index, 1, ...data.userMessages);
     renderMessages();

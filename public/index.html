@@ -144,7 +144,7 @@
             <div class="avatar friend-avatar" id="friend-avatar" aria-hidden="true"></div>
             <div class="friend-card-text">
               <div class="friend-card-name" id="friend-name"></div>
-              <div class="friend-card-role">your friend</div>
+              <div class="friend-card-role" id="friend-role">your friend</div>
             </div>
           </div>
           <button id="notebook-button" class="icon-button" type="button" aria-label="Notebook" title="Notebook">
@@ -220,6 +220,12 @@
             <span id="error-text"></span>
             <button id="error-retry" type="button" class="link-button">Try again</button>
             <button id="error-dismiss" type="button" class="link-button" aria-label="Dismiss">✕</button>
+          </div>
+
+          <!-- The message you're replying to (the Reply button). -->
+          <div id="reply-bar" class="reply-bar" hidden>
+            <span id="reply-bar-text" class="reply-bar-text"></span>
+            <button id="reply-bar-cancel" type="button" class="link-button" aria-label="Don't reply">✕</button>
           </div>
 
           <!-- A storyline your friend paused, and why (pause_storyline). -->

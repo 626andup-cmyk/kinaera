@@ -136,6 +136,13 @@ export function createHub(config: Config, makeApp: (config: Config) => App = cre
       userThemesDir: join(root, "themes"),
       friendId: friend.id,
       example: friend.id === "home",
+      // Who else is on their server (names only).
+      peers: () => {
+        const server = registry.servers.find((s) => s.friends.includes(friend.id));
+        return (server?.friends ?? [])
+          .filter((id) => id !== friend.id && apps.has(id))
+          .map((id) => ({ id, name: apps.get(id)!.store.getSettings().friendName }));
+      },
     });
     apps.set(friend.id, app);
     if (started) startApp(app);

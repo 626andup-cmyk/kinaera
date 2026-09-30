@@ -123,12 +123,13 @@ import { BusyError, Friend, pickProfile, promptForChannel, testToolCalling, type
 import { parseSceneBreak, postToMessages } from "./posts.ts";
 import { Summarizer } from "./summarizer.ts";
 import { Decider, testJev } from "./jev.ts";
-import { FRESH_SCENE_MINUTES, Wakeups } from "./wakeups.ts";
+import { FRESH_SCENE_MINUTES, inQuietHours, Wakeups } from "./wakeups.ts";
 import { Heartbeat } from "./heartbeat.ts";
 import { describeSeeds, randomFriend, rollSeeds } from "./rng.ts";
 import { keepAwake, Presence, TermuxNotifier, type Notifier } from "./notify.ts";
 import { DEFAULT_THEME, ThemeLibrary } from "./themes.ts";
 import { ENTRY_TEMPLATES } from "./notebook.ts";
+import { rollCommand } from "./dice.ts";
 import {
   invitationNote,
   invited,
@@ -275,6 +276,8 @@ export function createApp(config: Config): App {
     timeoutMs: config.requestTimeoutMs,
   };
   const friend = new Friend(store, api);
+  // Who else is on their server (from the hub; names only).
+  if (config.peers) friend.peers = config.peers;
   const summarizer = new Summarizer(store, api, config.summaryDelayMs);
   const decider = new Decider(
     api,
@@ -355,6 +358,21 @@ export function createApp(config: Config): App {
 
   function channelViews(): ChannelView[] {
     return store.listChannels().map(channelView);
+  }
+
+  /** Presence, from the real state: writing, reading (a tool call), quiet (quiet hours), or idle. */
+  function presenceNow(): "writing" | "reading" | "quiet" | "idle" {
+    const phases = Object.values(friend.phases());
+    if (phases.includes("reading")) return "reading";
+    if (phases.length > 0) return "writing";
+    const settings = store.getSettings();
+    return inQuietHours(new Date(), settings.quietStart, settings.quietEnd) ? "quiet" : "idle";
+  }
+
+  /** The status your friend set themselves (set_status), or null. */
+  function statusNow(): { text: string; at: string } | null {
+    const value = store.appState.get("status");
+    return value ? (JSON.parse(value) as { text: string; at: string }) : null;
   }
 
   /** A channel's voice marks and "not me" flags, by message id. */
@@ -518,6 +536,11 @@ export function createApp(config: Config): App {
           // Your suggestions still waiting for your friend.
           waiting: waitingOnFriend(),
           busyChannels: friend.busyChannels(),
+          // Presence: writing or reading in each busy channel, and overall
+          // (with quiet hours), plus the status they set themselves.
+          phases: friend.phases(),
+          presence: presenceNow(),
+          status: statusNow(),
           appVersion: version,
           emojis: store.reactions.listEmojis(),
           // Whether phone notifications work here (Termux), and the next heartbeat.
@@ -841,8 +864,10 @@ export function createApp(config: Config): App {
       pattern: "/api/channels/:id/messages",
       handler: async (request, { id }) => {
         const body = await readJson(request);
-        const content = requireText(body, "content");
+        // `/roll 2d6+3`: the roll itself is saved, so it can't be made up (src/dice.ts).
+        const content = rollCommand(requireText(body, "content"));
         const channel = store.getChannel(id!); // 404 for an unknown channel
+        if (channel.kind === "practice") throw new HttpError(400, "The practice channel is your friend's own: you can read it, not write in it.");
         // Refuse *before* saving, so a message sent while the friend is busy
         // isn't saved without a reply attached.
         ensureIdle(id!);
@@ -856,6 +881,12 @@ export function createApp(config: Config): App {
         const postingAs = readPostingAs(body, yourCharacters);
         const messages = postToMessages(channel, content, yourCharacters, postingAs);
         if (messages.length === 0) throw new HttpError(400, "There's nothing to send after the character tags.");
+        // A reply (Discord-style) to a message in this channel.
+        const replyTo = (body as { replyTo?: unknown }).replyTo;
+        if (replyTo !== undefined && replyTo !== null) {
+          if (typeof replyTo !== "string" || store.getLiveMessage(replyTo).channelId !== id) throw new HttpError(400, '"replyTo" must be a message in this channel.');
+          messages[0] = { ...messages[0]!, replyTo };
+        }
         // Notes you attached (and entries you [[linked]]) go with the message.
         const attach = readAttachments(body, content);
         const userMessages = store.addTurn(messages);
@@ -960,7 +991,7 @@ export function createApp(config: Config): App {
         const profileId = new URL(request.url).searchParams.get("profile");
         const profile = profileId ? store.profiles.get(profileId) : pickProfile(store, store.getChannel(id!), 0);
         // The preview never shows journal text (it's private to your friend).
-        return json({ messages: promptForChannel(store, id!, { profile, preview: true }), profile });
+        return json({ messages: promptForChannel(store, id!, { profile, preview: true, peers: friend.peers() }), profile });
       },
     },
 

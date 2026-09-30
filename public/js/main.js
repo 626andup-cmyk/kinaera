@@ -78,7 +78,7 @@ import {
   sayOpened,
   sendPresence,
 } from "./live.js";
-import { friendTurn, newScene, regenerate, sendMessage, startBusyWatch, stopTurn } from "./messages.js";
+import { friendTurn, newScene, regenerate, sendMessage, startBusyWatch, stopTurn, takeReply } from "./messages.js";
 import {
   changeCast,
   deleteEntry,
@@ -374,3 +374,6 @@ loadHub()
     return openChannel(channelFromAddress() ?? state.channels[0]?.id ?? null);
   })
   .catch((error) => showError(`Couldn't load Kinaera: ${error.message}`, () => location.reload()));
+
+// Replying to a message: ✕ drops it.
+$("reply-bar-cancel").addEventListener("click", () => takeReply(state.channelId));

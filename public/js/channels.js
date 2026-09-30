@@ -222,6 +222,11 @@ export function renderSidebar() {
 
   const friendName = state.settings?.friendName ?? "Friend";
   els.friendName.textContent = friendName;
+  // Under their name: their own status (set_status), else what they're doing now.
+  const doing = { writing: "writing…", reading: "reading…", quiet: "quiet hours" }[state.presence] ?? "your friend";
+  $("friend-role").textContent = state.status?.text ?? doing;
+  $("friend-role").title = state.status ? `Status, set by ${friendName}` : "";
+  $("friend-card").dataset.presence = state.presence ?? "idle";
   paintAvatar(els.friendAvatar, { name: friendName, avatar: state.settings?.friendAvatar, color: state.settings?.friendColor });
   renderRail();
 }

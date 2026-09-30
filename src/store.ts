@@ -35,6 +35,7 @@ import { Schedule } from "./schedule.ts";
 import { Drafts } from "./drafts.ts";
 import { Continuity } from "./continuity.ts";
 import { Wellbeing } from "./wellbeing.ts";
+import { Relationships } from "./relationships.ts";
 import { queueOrientation } from "./orientation.ts";
 import { parseSections } from "./wording.ts";
 import type {
@@ -417,6 +418,7 @@ interface MessageRow {
   alternates: number;
   model: string | null;
   profile: string | null;
+  reply_to: string | null;
   /** A JSON array of character names, built by the query itself. */
   characters: string;
   /** A JSON array of attached notebook entry ids, built by the query itself. */
@@ -466,6 +468,7 @@ function toMessage(row: MessageRow): Message {
     ...(row.superseded_by ? { supersededBy: row.superseded_by } : {}),
     ...(row.model ? { model: row.model } : {}),
     ...(row.profile ? { profile: row.profile } : {}),
+    ...(row.reply_to ? { replyTo: row.reply_to } : {}),
   };
 }
 
@@ -476,7 +479,7 @@ function toMessage(row: MessageRow): Message {
  * everything about a message.
  */
 const SELECT_MESSAGES = `
-  SELECT m.id, m.channel_id, m.kind, m.mode, m.turn_id, m.author, m.content, m.created_at, m.edited_at, m.model, m.profile,
+  SELECT m.id, m.channel_id, m.kind, m.mode, m.turn_id, m.author, m.content, m.created_at, m.edited_at, m.model, m.profile, m.reply_to,
     m.edited_by, m.deleted_at, m.deleted_by, m.superseded_by,
     (SELECT COUNT(DISTINCT COALESCE(a.turn_id, a.id)) FROM messages a
        WHERE m.turn_id IS NOT NULL AND a.superseded_by = m.turn_id AND a.channel_id = m.channel_id) AS alternates,
@@ -511,6 +514,8 @@ export interface NewMessage {
   mode?: ChannelMode | null;
   /** Shared by messages written together. Defaults to `null`. */
   turnId?: string | null;
+  /** The message this one answers (a reply), if any. */
+  replyTo?: string | null;
 }
 
 export class Store {
@@ -553,6 +558,8 @@ export class Store {
   readonly continuity: Continuity;
   /** The weekly wellbeing readings (stage 6, src/wellbeing.ts). */
   readonly wellbeing: Wellbeing;
+  /** Their private notes on the other friends (stage 7, src/relationships.ts). */
+  readonly relationships: Relationships;
   /** Your friend's recent wake-ups, and what came of them (see `src/wakeups.ts`). */
   readonly wakeLog: WakeLog;
   /**
@@ -614,6 +621,7 @@ export class Store {
     this.drafts = new Drafts(this.db);
     this.continuity = new Continuity(this.db);
     this.wellbeing = new Wellbeing(this.db);
+    this.relationships = new Relationships(this.db);
 
     if (isNew) {
       this.seed(options.example ?? true);
@@ -983,8 +991,8 @@ export class Store {
   addMessage(input: NewMessage & { id?: string; createdAt?: string; editedAt?: string }): Message {
     const id = input.id ?? crypto.randomUUID();
     const insertMessage = this.db.query(
-      `INSERT INTO messages (id, channel_id, kind, mode, turn_id, author, content, created_at, edited_at, model, profile)
-       VALUES ($id, $channelId, $kind, $mode, $turnId, $author, $content, $createdAt, $editedAt, $model, $profile)`,
+      `INSERT INTO messages (id, channel_id, kind, mode, turn_id, author, content, created_at, edited_at, model, profile, reply_to)
+       VALUES ($id, $channelId, $kind, $mode, $turnId, $author, $content, $createdAt, $editedAt, $model, $profile, $replyTo)`,
     );
     const insertCharacter = this.db.query(
       "INSERT OR IGNORE INTO message_characters (message_id, character_name, position) VALUES ($id, $name, $position)",
@@ -1004,6 +1012,7 @@ export class Store {
         editedAt: input.editedAt ?? null,
         model: input.model ?? null,
         profile: input.profile ?? null,
+        replyTo: input.replyTo ?? null,
       });
       (input.characters ?? []).forEach((name, position) => insertCharacter.run({ id, name, position }));
     })();

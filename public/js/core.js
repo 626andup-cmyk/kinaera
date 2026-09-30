@@ -34,6 +34,12 @@ export const state = {
    * the bottom of the sidebar. You can read it, not write in it.
    */
   practice: null,
+  /** Presence: what they're doing in each busy channel ({id: "writing" | "reading"}), overall, and their own status. */
+  phases: {},
+  presence: "idle",
+  status: null,
+  /** The message your next one replies to (the Reply button): {channelId, messageId}, or null. */
+  replyingTo: null,
   /** The open channel's voice marks and "not me" flags: {voice: [ids], notMe: {id: {note, profile}}}. */
   flags: { voice: [], notMe: {} },
   /** Your suggestions for their identity and self-page still waiting for them: {identity, selfNotes}. */

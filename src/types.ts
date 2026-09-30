@@ -287,6 +287,8 @@ export interface Message {
    * as it was called at the time (profiles can be renamed or deleted later).
    */
   profile?: string;
+  /** The message this one answers (Discord-style reply), if any. */
+  replyTo?: string;
   /**
    * Ids of notebook entries you attached to this message: they're sent to
    * your friend in full while the message is in the conversation.

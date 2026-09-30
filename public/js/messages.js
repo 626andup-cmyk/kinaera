@@ -147,6 +147,8 @@ async function checkBusy() {
   try {
     const data = await api("GET", "/api/state");
     serverBusy = new Set(data.busyChannels);
+    state.phases = data.phases ?? {};
+    state.presence = data.presence ?? state.presence;
     checkForUpdate(data.appVersion);
   } catch {
     return; // server unreachable for a moment; try again next time
@@ -198,6 +200,8 @@ export async function sendMessage() {
   // Notes attached with the paperclip go with this message, then are cleared.
   const attach = [...(state.attachments.get(channelId) ?? [])];
   state.attachments.delete(channelId);
+  // A reply to an earlier message (the Reply button), then cleared.
+  const replyTo = takeReply(channelId);
   const sentAt = new Date();
   const placeholder = {
     id: "pending",
@@ -208,6 +212,7 @@ export async function sendMessage() {
     content,
     characters: postingAs ? [postingAs] : [],
     attachments: attach,
+    ...(replyTo ? { replyTo } : {}),
     createdAt: sentAt.toISOString(),
   };
   state.messages.push(placeholder);
@@ -233,7 +238,7 @@ export async function sendMessage() {
     channelId,
     async (stillMine) => {
       try {
-        const data = await api("POST", channelPath("messages", channelId), { content, postingAs, attach });
+        const data = await api("POST", channelPath("messages", channelId), { content, postingAs, attach, replyTo });
         if (!stillMine()) return; // abandoned; the channel was already reloaded
         if (state.channelId !== channelId) return; // you've moved on; it'll load when you return
         // Posting as one of your characters adds them to the cast.
@@ -558,6 +563,53 @@ function renderSceneBreak(sceneBreak) {
  *     friend's name as a badge (it's them writing the character).
  *   - Friend posts voicing no one (OOC): the friend's name.
  */
+// ------------------------------------------------------------------ replies
+
+/** Reply to a message: shown above where you write until you send (or ✕). */
+export function startReply(message) {
+  state.replyingTo = { channelId: state.channelId, messageId: message.id };
+  renderReplyBar();
+  els.input.focus();
+}
+
+/** The reply waiting to go with your next message in this channel, cleared once taken. */
+export function takeReply(channelId) {
+  const reply = state.replyingTo?.channelId === channelId ? state.replyingTo.messageId : null;
+  state.replyingTo = null;
+  renderReplyBar();
+  return reply;
+}
+
+/** "Replying to Arlo: …" above the box you write in. */
+export function renderReplyBar() {
+  const bar = $("reply-bar");
+  const reply = state.replyingTo?.channelId === state.channelId ? state.messages.find((m) => m.id === state.replyingTo.messageId) : null;
+  bar.hidden = !reply;
+  if (!reply) return;
+  $("reply-bar-text").textContent = `Replying to ${authorOf(reply).name}: ${reply.content.replace(/\s+/g, " ").slice(0, 80)}`;
+}
+
+/** The quoted preview on a reply; tapping it jumps to the original. */
+function renderReplyPreview(message) {
+  const target = state.messages.find((m) => m.id === message.replyTo);
+  const preview = document.createElement("button");
+  preview.type = "button";
+  preview.className = "message-reply-preview";
+  preview.textContent = target
+    ? `↪ ${authorOf(target).name}: ${target.content.replace(/\s+/g, " ").slice(0, 90)}`
+    : "↪ a message that's no longer here";
+  if (target) {
+    preview.addEventListener("click", () => {
+      const element = document.querySelector(`[data-message-id="${CSS.escape(target.id)}"]`);
+      if (!element) return;
+      element.scrollIntoView({ behavior: "smooth", block: "center" });
+      element.classList.add("flash");
+      setTimeout(() => element.classList.remove("flash"), 1500);
+    });
+  }
+  return preview;
+}
+
 function authorOf(message) {
   const writer = message.author === "user" ? "You" : state.settings.friendName;
   if (message.characters.length > 0) return { name: message.characters.join(" & "), badge: writer };
@@ -662,6 +714,7 @@ function renderMessage(message, { continued = false, regenerate: showRegenerate 
     return root;
   }
 
+  if (message.replyTo) root.append(renderReplyPreview(message));
   const content = document.createElement("div");
   content.className = "message-content";
   content.innerHTML = formatText(message.content);
@@ -713,6 +766,7 @@ function renderMessage(message, { continued = false, regenerate: showRegenerate 
       renderMessages();
     }),
     actionButton("Delete", () => deleteMessage(message.id), busy),
+    actionButton("Reply", () => startReply(message)),
     actionButton("Comment", () => newComment(message.id)),
     actionButton("React", (event) => openReactionPicker(message.id, event.currentTarget)),
   );

@@ -27,6 +27,7 @@ import { replyToMessages } from "./posts.ts";
 import { localTime } from "./schedule.ts";
 import { draftId } from "./drafts.ts";
 import { MIRROR_DEFAULT, MIRROR_MAX, readPatterns } from "./mirror.ts";
+import { roll } from "./dice.ts";
 import { queueOrientation } from "./orientation.ts";
 import { VERBATIM_SLOTS } from "./verbatim.ts";
 import { ASK_KIND_NAMES, ASK_KINDS, type AskKind } from "./inbox.ts";
@@ -40,6 +41,7 @@ import type { ToolSpec } from "./nanogpt.ts";
 import type { Store } from "./store.ts";
 import { channelSummaryText } from "./summaries.ts";
 import type { Channel, EntryField, Message, Owner } from "./types.ts";
+import type { Peer } from "./config.ts";
 
 /** Where a tool runs: the channel of the turn, and what kind of turn. */
 export interface ToolContext {
@@ -52,7 +54,7 @@ export interface ToolContext {
   /** The API, for `consult`. Without it, `consult` isn't offered. */
   api?: ApiOptions;
   /** Counts for this turn, for its limits (one `consult` per turn, one post per other channel). */
-  turn?: { consults: number; postedIn?: string[] };
+  turn?: { consults: number; postedIn?: string[]; replyTo?: string };
   /** Why this turn is happening, if it's a turn of their own (asks in an orientation are marked). */
   wake?: string;
   /** The model writing this turn, for messages posted in other channels. */
@@ -60,6 +62,8 @@ export interface ToolContext {
   profileName?: string;
   /** The profile writing this turn (for write_profile_note). */
   profileId?: string;
+  /** The other friends on their server (names only), from the hub. */
+  peers?: Peer[];
   /** Whether your friend is already writing in a channel (another turn). */
   isBusy?: (channelId: string) => boolean;
   /** Told about messages posted in another channel (a phone notification, if the app isn't open). */
@@ -1576,6 +1580,66 @@ OWN.push(
     },
   },
 );
+
+// -------------------------------------------------------- relationships
+
+OWN.push({
+  name: "note_relationship",
+  description:
+    "Keep your own private note on another friend on this server: who they are to you, how things stand. Only you see it (no screen, never in a log; they never see it). Rewrite it any time; an empty note removes it.",
+  parameters: object({ friend: str("Their name."), note: str("Your note, in full.") }, ["friend", "note"]),
+  available: (ctx) => (ctx.peers ?? []).length > 0,
+  private: true,
+  run: (ctx, args) => {
+    const name = need(args, "friend").trim().toLowerCase();
+    const peer = (ctx.peers ?? []).find((p) => p.name.toLowerCase() === name);
+    if (!peer) throw new ToolError(`There's no friend called "${args.friend}" here. Friends here: ${(ctx.peers ?? []).map((p) => p.name).join(", ")}.`);
+    ctx.store.relationships.write(peer.id, peer.name, String(args.note ?? ""));
+    return { result: { saved: true }, summary: "wrote a private note on a friend" };
+  },
+});
+
+// --------------------------------------------------------------- status
+
+OWN.push({
+  name: "set_status",
+  description: 'Set your status, shown under your name in the app, like "reading old notes" or "thinking about the lighthouse". Empty clears it.',
+  parameters: object({ text: str("Your status, short.") }, ["text"]),
+  run: ({ store }, args) => {
+    const text = String(args.text ?? "").trim().slice(0, 80);
+    store.appState.set("status", text ? JSON.stringify({ text, at: new Date().toISOString() }) : null);
+    return { result: { status: text || null }, summary: text ? `set their status: "${text}"` : "cleared their status" };
+  },
+});
+
+// -------------------------------------------------------------- replies
+
+OWN.push({
+  name: "reply_to",
+  description:
+    "Make your reply this turn a reply to a particular message here (shown with a quote of it, like Discord), by quoting a few words from it. Useful when answering something from further back.",
+  parameters: object({ quote: str("A few words copied exactly from the message you're answering.") }, ["quote"]),
+  available: (ctx) => ctx.mode === "post",
+  run: (ctx, args) => {
+    const message = findMessage(ctx, need(args, "quote"), false);
+    if (ctx.turn) ctx.turn.replyTo = message.id;
+    return { result: { replying_to: snip(message.content), note: "Your reply this turn will quote it." }, summary: `replied to "${snip(message.content)}"` };
+  },
+});
+
+// ----------------------------------------------------------------- dice
+
+OWN.push({
+  name: "roll_dice",
+  description:
+    'Roll real dice, like "d20", "2d6+3" or "4d6kh3" (keep the highest 3). The result is random and shown to the user under your message, so use it when chance should decide, and write what it says.',
+  parameters: object({ dice: str('What to roll: "d20", "2d6+3", "4d6kh3".'), for: str("Optional: what it's for.") }, ["dice"]),
+  run: (_ctx, args) => {
+    const result = roll(need(args, "dice"));
+    const why = maybe(args, "for");
+    return { result: { rolled: result.text, total: result.total }, summary: `rolled ${result.text}${why ? ` (${why})` : ""}` };
+  },
+});
 
 /** A draft by its short id. */
 function findDraft(store: Store, id: string) {

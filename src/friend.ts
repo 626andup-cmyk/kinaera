@@ -51,6 +51,7 @@ import type { Store } from "./store.ts";
 import { extractTextToolCalls, parseArguments, type ParsedCall } from "./toolcalls.ts";
 import { isPrivateTool, runTool, toolSpecs, type ToolContext, type ToolOutcome } from "./tools.ts";
 import { invited, NEW_PROFILE, settleInvitation } from "./orientation.ts";
+import type { Peer } from "./config.ts";
 import type { ApiMessage, ApiToolCall, Channel, ChatMessage, CommentThread, Message, Profile, ToolCallRecord } from "./types.ts";
 
 /** The most rounds of tool calls in one turn. The last round is offered no tools, so it has to write. */
@@ -140,6 +141,8 @@ export interface PromptOptions {
    * are replaced with a line saying so (the prompt itself still has them).
    */
   preview?: boolean;
+  /** The other friends on their server (names only), for "Friends here". */
+  peers?: Peer[];
 }
 
 /**
@@ -244,9 +247,18 @@ export function promptForChannel(store: Store, channelId: string, options: Promp
     notices: noticesFor(store, tools),
     schedule: {
       now: localTime(new Date()),
+      status: (() => {
+        const value = store.appState.get("status");
+        return value ? (JSON.parse(value) as { text: string }).text : null;
+      })(),
       waiting: store.schedule.waiting().map((w) => ({ id: w.id, at: w.at, note: w.note, channel: channelName(w.channelId) })),
     },
     // Never the messages already here, nor ones this turn replaces (a regeneration).
+    // Who else is on their server, with their private note on each (src/relationships.ts).
+    friendsHere: (options.peers ?? []).map((p) => ({
+      name: p.name,
+      note: options.preview ? (store.relationships.all().has(p.id) ? "(private)" : null) : (store.relationships.all().get(p.id)?.note ?? null),
+    })),
     anchors: voiceAnchors(store, channel, new Set([...window.map((m) => m.id), ...excluded])),
     profileNote: profileNoteFor(store, options.profile),
     // Private, like the journal: the preview shows that they're there, not what they're called.
@@ -522,6 +534,9 @@ export class Friend {
   /** Jev, for the `check` tool, once the server has set it up. */
   decider: Decider | null = null;
 
+  /** The other friends on their server (names only), from the hub. */
+  peers: () => Peer[] = () => [];
+
   /** Told when your friend posts in another channel mid-turn (`post_in_channel`), for notifications. */
   onPostedElsewhere: ((channel: Channel, messages: Message[]) => void) | null = null;
 
@@ -539,6 +554,14 @@ export class Friend {
   /** Every channel with a turn in progress. */
   busyChannels(): string[] {
     return [...this.writingIn.keys()];
+  }
+
+  /** Channels where a tool call is running right now ("reading"), for presence. */
+  private readonly readingIn = new Set<string>();
+
+  /** What they're doing in each busy channel: writing, or reading (a tool call in progress). */
+  phases(): Record<string, "writing" | "reading"> {
+    return Object.fromEntries(this.busyChannels().map((id) => [id, this.readingIn.has(id) ? "reading" : "writing"]));
   }
 
   /**
@@ -603,6 +626,7 @@ export class Friend {
         profile,
         replyingTo,
         wake: options.wake,
+        peers: this.peers(),
       });
       const context: ToolContext = {
         store: this.store,
@@ -615,6 +639,7 @@ export class Friend {
         model: profile.model,
         profileName: profile.name,
         profileId: profile.id,
+        peers: this.peers(),
         isBusy: (id) => this.isBusy(id),
         onPosted: (where, messages) => this.onPostedElsewhere?.(where, messages),
       };
@@ -667,7 +692,7 @@ export class Friend {
         loop.content,
         profile.model,
         friendCharacterNames(this.store, channelId).map((name) => ({ name })),
-      ).map((m) => ({ ...m, profile: profile.name }));
+      ).map((m, i) => ({ ...m, profile: profile.name, ...(i === 0 && context.turn?.replyTo ? { replyTo: context.turn.replyTo } : {}) }));
 
       // Swap old for new in one transaction: never both, never neither.
       result.messages = this.store.db.transaction(() => {
@@ -787,7 +812,13 @@ export class Friend {
   private async runCall(context: ToolContext, call: ParsedCall): Promise<ToolOutcome> {
     const args = parseArguments(call.arguments);
     if (!args.ok) return failed(`${args.error} Call ${call.name} again with valid JSON arguments.`);
-    return runTool(context, call.name, args.value);
+    // Presence: "reading" while a tool runs.
+    this.readingIn.add(context.channel.id);
+    try {
+      return await runTool(context, call.name, args.value);
+    } finally {
+      this.readingIn.delete(context.channel.id);
+    }
   }
 }
 

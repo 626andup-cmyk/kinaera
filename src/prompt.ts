@@ -352,7 +352,9 @@ export interface PromptInput {
   /** Something for the friend to know this turn, like an orientation invitation. */
   notices?: string[];
   /** The time now (the user's local time, in words) and their waiting wake-ups (src/schedule.ts). */
-  schedule?: { now: string; waiting: { id: number; at: string; note: string; channel: string | null }[] };
+  schedule?: { now: string; waiting: { id: number; at: string; note: string; channel: string | null }[]; status?: string | null };
+  /** The other friends on their server, with their private note on each (null: none yet). */
+  friendsHere?: { name: string; note: string | null }[];
   /** Short excerpts of their own earlier writing in this kind of channel (src/continuity.ts). */
   anchors?: { text: string; channel: string; marked: boolean }[];
   /** Their own note on the profile writing this turn. */
@@ -429,6 +431,7 @@ export function buildPromptStack({
   drafts,
   anchors,
   profileNote,
+  friendsHere,
 }: PromptInput): ChatMessage[] {
   const isRp = channel.kind === "rp";
   const isPractice = channel.kind === "practice";
@@ -458,6 +461,8 @@ export function buildPromptStack({
     // Staying themselves across models (src/continuity.ts): their own
     // voice, and their note on the profile writing this turn.
     { title: "Your voice", content: describeAnchors(anchors, tools ?? false) },
+    // Other friends on the server: who they are to you, in your own words.
+    { title: "Friends here", content: describeFriendsHere(friendsHere, tools ?? false) },
     {
       title: "This profile",
       content: profileNote ? `${(wording("continuity")["profile-note"] ?? "").replace("{profile}", profileNote.profile)}\n${profileNote.note}` : null,
@@ -542,7 +547,11 @@ export function buildPromptStack({
   layers.push({ title: "What's in front of you", content: manifestLine({ channel, messages, start, memory, journal, verbatim, tools: tools ?? false }) });
   const system: ChatMessage = { role: "system", content: renderLayers(layers) };
 
-  const history = toChatHistory(messages.slice(start), { texting: !isRp && !isPractice && settings.oocBubbles, editMarkers });
+  const history = toChatHistory(messages.slice(start), {
+    texting: !isRp && !isPractice && settings.oocBubbles,
+    editMarkers,
+    replies: new Map(messages.map((m) => [m.id, m])),
+  });
 
   // If the conversation doesn't end on your message, add a nudge so the model
   // knows it's being asked to continue. This is what lets the friend take a
@@ -642,6 +651,19 @@ export function describeJournal(journal: PromptInput["journal"]): string | null 
   return lines.join("\n\n");
 }
 
+/** "Friends here": the other friends on the server, with their private note on each. */
+export function describeFriendsHere(friends: PromptInput["friendsHere"], tools: boolean): string | null {
+  if (!friends || friends.length === 0) return null;
+  const words = wording("friends");
+  return [
+    words.here ?? "",
+    ...friends.map((f) => `- ${f.name}${f.note ? `: ${f.note}` : tools ? " (no note yet)" : ""}`),
+    tools ? `${words["here-tools"] ?? ""} ${words.standing ?? ""}`.trim() : "",
+  ]
+    .filter((p) => p.trim())
+    .join("\n");
+}
+
 /** "Your voice": a few excerpts of their own earlier writing, to keep their voice in mind. */
 export function describeAnchors(anchors: PromptInput["anchors"], tools: boolean): string | null {
   if (!anchors || anchors.length === 0) return null;
@@ -659,8 +681,10 @@ export function describeAnchors(anchors: PromptInput["anchors"], tools: boolean)
 export function describeSchedule(schedule: PromptInput["schedule"]): string | null {
   if (!schedule) return null;
   const time = wording("time");
-  if (schedule.waiting.length === 0) return (time["schedule-empty"] ?? "").replace("{now}", schedule.now);
+  const status = schedule.status ? `\nYour status (shown under your name): "${schedule.status}". set_status changes it.` : "";
+  if (schedule.waiting.length === 0) return (time["schedule-empty"] ?? "").replace("{now}", schedule.now) + status;
   return [
+    ...(status ? [status.trim()] : []),
     (time.schedule ?? "").replace("{now}", schedule.now),
     "Wake-ups you've set:",
     ...schedule.waiting.map((w) => `- [w${w.id}] ${localTime(new Date(w.at))}${w.channel ? ` in #${w.channel}` : ""}: ${w.note}`),
@@ -881,7 +905,10 @@ export function recentMessages(messages: Message[], limit: number): Message[] {
  *     line by line, like a chat log. That's the same format the model is
  *     asked to write in, so it can see who said what.
  */
-export function toChatHistory(messages: Message[], options: { texting?: boolean; editMarkers?: boolean } = {}): ChatMessage[] {
+export function toChatHistory(
+  messages: Message[],
+  options: { texting?: boolean; editMarkers?: boolean; replies?: Map<string, Message> } = {},
+): ChatMessage[] {
   const history: ChatMessage[] = [];
   for (const message of messages) {
     let content: string;
@@ -897,6 +924,13 @@ export function toChatHistory(messages: Message[], options: { texting?: boolean;
       // Their preference (the self-page): edited messages say so.
       if (options.editMarkers && message.editedBy) content = `(edited by ${message.editedBy === "user" ? "the user" : "you"}) ${content}`;
       role = message.author === "user" ? "user" : "assistant";
+      // A reply says what it answers, briefly.
+      const target = message.replyTo ? options.replies?.get(message.replyTo) : undefined;
+      if (target) {
+        const who = target.author === "user" ? "the user" : "you";
+        const preview = target.content.replace(/\s+/g, " ").trim();
+        content = `(replying to ${who}: "${preview.length > 80 ? `${preview.slice(0, 80)}…` : preview}") ${content}`;
+      }
       // Texting in OOC: your friend's bubbles are joined with the marker,
       // so the model keeps writing that way; yours, one per line.
       if (options.texting) separator = role === "assistant" ? ` ${BUBBLE_MARKER} ` : "\n";
