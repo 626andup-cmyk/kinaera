@@ -12,6 +12,8 @@ export function renderComposer() {
   const channel = currentChannel();
   els.composer.hidden = !channel;
   if (!channel) return;
+  // Their practice channel is theirs to write in: you can only read it.
+  $("composer-form").hidden = channel.kind === "practice";
 
   const busy = state.busy.has(channel.id);
   // "Writing" while the model works; "typing" while texts are revealed one by one.

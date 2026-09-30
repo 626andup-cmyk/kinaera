@@ -35,7 +35,7 @@ function entry(overrides: Partial<NotebookEntry>): NotebookEntry {
 }
 
 function folder(overrides: Partial<NotebookFolder>): NotebookFolder {
-  return { id: "f", name: "Secrets", owner: "friend", visibility: "hidden", editing: "locked", position: 0, createdAt: "", ...overrides };
+  return { id: "f", name: "Secrets", owner: "friend", visibility: "hidden", editing: "locked", position: 0, practice: false, createdAt: "", ...overrides };
 }
 
 const settings = (owner: EffectiveSettings["owner"], visibility = "visible", editing = "open") =>

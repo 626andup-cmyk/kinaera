@@ -60,7 +60,7 @@ export function postToMessages(
   postingAs: string | null,
 ): TurnMessage[] {
   const base = { channelId: channel.id, author: "user" as const };
-  if (channel.kind === "ooc") return [{ ...base, content, characters: [], mode: null }];
+  if (channel.kind !== "rp") return [{ ...base, content, characters: [], mode: null }];
   if (channel.mode === "literary") return [{ ...base, content, characters: [], mode: "literary" }];
 
   const speakers = yourCharacters.map((c) => ({ name: c.name, aliases: c.proxyPrefix ? [c.proxyPrefix] : [] }));
@@ -110,7 +110,7 @@ export function replyToMessages(
 ): TurnMessage[] {
   const base = { channelId: channel.id, author: "friend" as const, model };
   // OOC: a burst of texts, split at <cht> (src/texting.ts).
-  if (channel.kind === "ooc") {
+  if (channel.kind !== "rp") {
     const texts = splitTexts(content);
     return (texts.length > 0 ? texts : [content.trim()]).map((text) => ({ ...base, content: text, characters: [], mode: null }));
   }

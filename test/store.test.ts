@@ -135,7 +135,7 @@ describe("channels", () => {
     const leftovers = store.db.query("SELECT COUNT(*) AS n FROM message_characters").get() as { n: number };
     expect(leftovers.n).toBe(0);
     // Its cast is unpinned, but the characters stay in the notebook.
-    const pins = store.db.query("SELECT COUNT(*) AS n FROM channel_cast").get() as { n: number };
+    const pins = store.db.query("SELECT COUNT(*) AS n FROM channel_cast WHERE channel_id = $id").get({ id: story.id }) as { n: number };
     expect(pins.n).toBe(0);
     expect(store.notebook.listEntries("user")).toHaveLength(1);
   });

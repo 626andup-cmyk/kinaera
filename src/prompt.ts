@@ -102,6 +102,10 @@ export const NUDGES: Record<ChannelKind, { continue: string; opening: string }> 
     continue: "(No new message from me yet. Say whatever's on your mind, or pick the conversation back up.)",
     opening: "(This is the start of our out-of-character chat. Say hello, however feels natural to you.)",
   },
+  practice: {
+    continue: "(Nothing new from me here. This is your practice channel: try whatever you like, or leave it.)",
+    opening: "(Nothing new from me here. This is your practice channel: try whatever you like, or leave it.)",
+  },
 };
 
 // ------------------------------------------------------------ wake-ups
@@ -111,7 +115,7 @@ export const NUDGES: Record<ChannelKind, { continue: string; opening: string }> 
  * message from you: you opened the app, a scene ended, something is
  * waiting for them, or (endgame) the heartbeat.
  */
-export type WakeReason = "opened" | "away" | "scene-ended" | "review" | "heartbeat" | "answer";
+export type WakeReason = "opened" | "away" | "scene-ended" | "review" | "heartbeat" | "answer" | "orientation" | "lookback";
 
 /** What a wake-up turn is told about why it's happening. */
 export interface WakeContext {
@@ -122,6 +126,10 @@ export interface WakeContext {
   waiting: string[];
   /** For "scene-ended": the scene that just ended, and its summary if it has one yet. */
   scene?: { channel: string; title: string; summary: string | null };
+  /** For "orientation": the guide, put together for the tools they have (src/orientation.ts). */
+  orientation?: string;
+  /** For "lookback": this week's journal entries. */
+  lookback?: { id: string; content: string; kept: boolean; createdAt: string }[];
 }
 
 /**
@@ -178,6 +186,18 @@ export function describeLibrary(docs: { title: string; description: string; pass
 
 /** The "Why you're up" section of a wake-up turn's prompt. */
 export function describeWake(wake: WakeContext, tools: boolean): string {
+  // Orientation and the look back are turns for your friend, in their
+  // practice channel: they aren't about reaching out.
+  if (wake.reason === "orientation") return wake.orientation ?? "";
+  if (wake.reason === "lookback") {
+    const words = wording("orientation");
+    const entries = wake.lookback ?? [];
+    if (entries.length === 0) return words["lookback-empty"] ?? "";
+    return [
+      words.lookback ?? "",
+      ...entries.map((e) => `[${e.id.slice(0, 6)}] ${e.createdAt.slice(0, 10)}${e.kept ? " (kept)" : ""}\n${e.content}`),
+    ].join("\n\n");
+  }
   const since = wake.sinceUser ? `It's been ${wake.sinceUser} since the user last wrote anything.` : "The user hasn't written anything yet.";
   const why: Record<WakeReason, string> = {
     opened: "The user just opened the app.",
@@ -186,6 +206,8 @@ export function describeWake(wake: WakeContext, tools: boolean): string {
     review: "The user suggested a notebook change that's waiting for your review.",
     heartbeat: "Nobody asked: you're checking in on your own, the way a friend texts out of nowhere.",
     answer: `The user answered something you asked them (see "What you've asked of the user").`,
+    orientation: "",
+    lookback: "",
   };
   const parts = [`You're taking a turn on your own: the user hasn't sent you anything new. ${why[wake.reason]} ${since}`];
   if (wake.scene) {
@@ -308,6 +330,18 @@ export interface PromptInput {
   customEmojis?: string[];
   /** Channel category names by id, for the OOC channel list. */
   categoryNames?: Record<string, string>;
+  /** Your friend's identity and tastes (src/identity.ts). Default: the friendPrompt setting, no tastes. */
+  identity?: { identity: string; tastes: string };
+  /** The short version of their self-page they chose to keep in front of them. */
+  selfPage?: string;
+  /** Their journal, as the prompt carries it: kept and newest entries, and how many have faded. */
+  journal?: { entries: { id: string; content: string; kept: boolean; createdAt: string }[]; faded: number };
+  /** Messages kept in full (keep_verbatim) that are older than the recent ones. */
+  verbatim?: Message[];
+  /** Their preference: mark edited messages in the conversation. */
+  editMarkers?: boolean;
+  /** Something for the friend to know this turn, like an orientation invitation. */
+  notices?: string[];
 }
 
 /** Layer 5: the summaries of what came before the recent messages. */
@@ -331,9 +365,13 @@ export interface PromptThread {
 
 /** A suggestion waiting for your friend, described for them. */
 export interface PromptReview {
+  /** The id they pass back (shown shortened). */
   id: string;
+  /** What it's about: an entry's name, "your identity", "your self-page". */
   entry: string;
   description: string;
+  /** The tool that answers it (default review_suggestion). */
+  tool?: string;
 }
 
 /**
@@ -364,8 +402,16 @@ export function buildPromptStack({
   library,
   customEmojis,
   categoryNames,
+  identity,
+  selfPage,
+  journal,
+  verbatim,
+  editMarkers,
+  notices,
 }: PromptInput): ChatMessage[] {
   const isRp = channel.kind === "rp";
+  const isPractice = channel.kind === "practice";
+  const who = identity ?? { identity: settings.friendPrompt, tastes: "" };
   const pinned = notebook?.pinned ?? [];
   const characterNames = (player: Player) =>
     pinned.filter((p) => p.entry.kind === "character" && playedBy(p.entry) === player).map((p) => p.entry.name);
@@ -378,8 +424,18 @@ export function buildPromptStack({
     // then your friend prompt.
     {
       title: "Who you are",
-      content: joinNonEmpty([isRp ? RP_FRAMING : OOC_FRAMING, settings.friendPrompt]),
+      content: joinNonEmpty([
+        isRp ? RP_FRAMING : OOC_FRAMING,
+        who.identity,
+        who.tastes.trim() ? `Your tastes:\n${who.tastes.trim()}` : "",
+      ]),
     },
+    // Your friend's own page, and journal: what they chose to keep in front
+    // of them (src/selfpage.ts, src/journal.ts).
+    { title: "Your self-page (short version)", content: tools ? describeSelfPage(selfPage ?? "") : null },
+    { title: "Your journal", content: tools ? describeJournal(journal) : null },
+    // The practice channel explains itself.
+    { title: "This channel", content: isPractice ? (wording("orientation")["practice-framing"] ?? null) : null },
     // Layer 2: how to write here. The fixed instructions for this scene's
     // mode (RP only), then your friend prompt for this kind of channel.
     {
@@ -387,11 +443,12 @@ export function buildPromptStack({
       content: joinNonEmpty([
         isRp ? modeInstructions(channel.mode, yourCharacters[0] ?? sharedCharacters[0] ?? "") : "",
         channelPrompt(settings, channel),
-        !isRp && settings.oocBubbles ? TEXTING_STYLE : "",
+        !isRp && !isPractice && settings.oocBubbles ? TEXTING_STYLE : "",
       ]),
     },
     // Layer 3, in RP: the notebook entries pinned to the channel (the cast
     // and any lore), then the entries they link to.
+    { title: "Practice notes", content: isPractice ? describeEntries(pinned) : null },
     { title: "The cast", content: isRp ? describeEntries(pinned.filter((p) => p.entry.kind === "character")) : null },
     { title: "Lore", content: isRp ? describeEntries(pinned.filter((p) => p.entry.kind === "lore")) : null },
     { title: "Linked notes", content: isRp ? describeEntries(notebook?.linked ?? []) : null },
@@ -402,10 +459,10 @@ export function buildPromptStack({
     // Layer 3, in OOC: an overview of the server and the notebook instead.
     {
       title: "Channels on your server",
-      content: isRp ? null : describeChannels(channels, channel, overview?.castNames ?? {}, digests ?? {}, categoryNames ?? {}),
+      content: isRp ? null : describeChannels(channels.filter((c) => c.kind !== "practice" || c.id === channel.id), channel, overview?.castNames ?? {}, digests ?? {}, categoryNames ?? {}),
     },
     ...(mentioned ?? []).map((m) => ({ title: `About #${m.name}`, content: m.summary })),
-    { title: "Your shared notebook", content: isRp ? null : describeNotebook(overview?.entries ?? []) },
+    { title: "Your shared notebook", content: isRp || isPractice ? null : describeNotebook(overview?.entries ?? []) },
     // Still layer 3, in both: notes attached to messages, comment threads,
     // what's waiting for your friend, and what they've done lately.
     { title: "Attached notes", content: describeEntries(attached ?? []) },
@@ -413,6 +470,7 @@ export function buildPromptStack({
     { title: "Waiting for your review", content: tools ? describeReviews(reviews ?? []) : null },
     { title: "What you did recently", content: (recentActions ?? []).map((line) => `- ${line}`).join("\n") },
     { title: "What you've asked of the user", content: (inbox ?? []).map((line) => `- ${line}`).join("\n") },
+    { title: "Notices", content: (notices ?? []).map((line) => `- ${line}`).join("\n") },
     { title: "Tools", content: tools ? toolGuidance(channel.kind) : null },
     // Honest notes on how things work here (defaults/standing.md).
     { title: "Good to know", content: standingNotes(tools ?? false) },
@@ -428,6 +486,7 @@ export function buildPromptStack({
       content: memory?.scenes?.length ? memory.scenes.map((s) => `${s.heading}: ${s.summary}`).join("\n\n") : null,
     },
     { title: isRp ? "Earlier in this scene" : "Earlier in this conversation", content: memory?.earlier ?? null },
+    { title: "Moments you kept in full", content: describeVerbatim(verbatim ?? []) },
   ];
 
   // Layer 5, second part: the recent conversation, in full.
@@ -440,9 +499,11 @@ export function buildPromptStack({
     content: describeReactions(messages.slice(start), tools ? (customEmojis ?? []) : []),
   };
   layers.splice(layers.findIndex((l) => l.title === "Comment threads") + 1, 0, reactionsLayer);
+  // Last: one line on what's in front of them, and where to see the rest.
+  layers.push({ title: "What's in front of you", content: manifestLine({ channel, messages, start, memory, journal, verbatim, tools: tools ?? false }) });
   const system: ChatMessage = { role: "system", content: renderLayers(layers) };
 
-  const history = toChatHistory(messages.slice(start), { texting: !isRp && settings.oocBubbles });
+  const history = toChatHistory(messages.slice(start), { texting: !isRp && !isPractice && settings.oocBubbles, editMarkers });
 
   // If the conversation doesn't end on your message, add a nudge so the model
   // knows it's being asked to continue. This is what lets the friend take a
@@ -493,9 +554,9 @@ export function describeThreads(threads: PromptThread[]): string | null {
 function describeReviews(reviews: PromptReview[]): string | null {
   if (reviews.length === 0) return null;
   return [
-    "The user suggested these notebook changes. Accept or reject each with review_suggestion when you've considered it.",
+    "The user suggested these. Accept or decline each when you've considered it, with the tool named.",
     "",
-    ...reviews.map((r) => `- [${r.id.slice(0, 8)}] ${r.entry}: ${r.description}`),
+    ...reviews.map((r) => `- [${r.id.slice(0, 8)}] ${r.entry}: ${r.description} (${r.tool ?? "review_suggestion"})`),
   ].join("\n");
 }
 
@@ -506,10 +567,73 @@ function describeReviews(reviews: PromptReview[]): string | null {
  */
 export function standingNotes(tools: boolean): string | null {
   const notes = wording("standing");
-  const lines = [tools ? notes.history : notes["history-no-tools"], tools ? notes["tools-visible"] : undefined].filter((line): line is string =>
+  const lines = [
+    tools ? notes.history : notes["history-no-tools"],
+    tools ? notes["tools-visible"] : undefined,
+    tools ? notes.identity : undefined,
+    tools ? notes.journal : undefined,
+  ].filter((line): line is string =>
     Boolean(line?.trim()),
   );
   return lines.length ? lines.join("\n\n") : null;
+}
+
+/** The short version of the self-page, with what the page is. */
+export function describeSelfPage(standing: string): string {
+  const note = wording("standing")["self-page"] ?? "";
+  return joinNonEmpty([note, standing.trim() || "(You haven't written a short version yet: write_self_page, section \"standing\".)"]);
+}
+
+/**
+ * The journal as a prompt carries it: kept entries and the newest few,
+ * each with its short id, and a line on the ones that have faded.
+ */
+export function describeJournal(journal: PromptInput["journal"]): string | null {
+  if (!journal) return null;
+  const lines = journal.entries.map((e) => `[${e.id.slice(0, 6)}] ${e.createdAt.slice(0, 10)}${e.kept ? " (kept)" : ""}\n${e.content}`);
+  if (journal.faded > 0) {
+    lines.push(`${journal.faded} older ${journal.faded === 1 ? "entry isn't" : "entries aren't"} shown here, because you didn't keep ${journal.faded === 1 ? "it" : "them"}. read_journal still finds them.`);
+  }
+  if (lines.length === 0) return "(Nothing yet. write_journal adds an entry.)";
+  return lines.join("\n\n");
+}
+
+/** Messages kept in full (keep_verbatim) that are older than the recent ones. */
+export function describeVerbatim(messages: Message[]): string | null {
+  if (messages.length === 0) return null;
+  return messages
+    .map((m) => `${m.author === "user" ? "The user" : "You"}${m.characters.length ? ` (as ${m.characters.join(" & ")})` : ""}, ${m.createdAt.slice(0, 10)}:\n${m.content}`)
+    .join("\n\n");
+}
+
+/**
+ * One line on what's in front of your friend this turn (KINAERA_REBUILD.md,
+ * section 5.2): how many messages in full, which summaries, how many
+ * journal entries. `read_prompt_manifest` has the details.
+ */
+export function manifestLine(input: {
+  channel: Channel;
+  messages: Message[];
+  start: number;
+  memory?: PromptMemory;
+  journal?: PromptInput["journal"];
+  verbatim?: Message[];
+  tools: boolean;
+}): string {
+  const inFull = input.messages.slice(input.start).filter((m) => m.kind === "post").length;
+  const parts = [`the last ${inFull} message${inFull === 1 ? "" : "s"} here in full`];
+  if (input.memory?.story) parts.push("the story so far");
+  if (input.memory?.scenes?.length) parts.push(`summaries of ${input.memory.scenes.map((s) => s.heading.split(",")[0]).join(" and ")}`);
+  if (input.memory?.earlier) parts.push(`a summary of what came earlier${input.channel.kind === "rp" ? " in this scene" : ""}`);
+  const older = input.messages.slice(0, input.start).filter((m) => m.kind === "post").length;
+  if (older > 0 && !input.memory?.story && !input.memory?.earlier && !input.memory?.scenes?.length) parts.push(`nothing of the ${older} older messages`);
+  if (input.verbatim?.length) parts.push(`${input.verbatim.length} moment${input.verbatim.length === 1 ? "" : "s"} you kept in full`);
+  if (input.tools && input.journal) {
+    const kept = input.journal.entries.filter((e) => e.kept).length;
+    parts.push(`${input.journal.entries.length} journal entr${input.journal.entries.length === 1 ? "y" : "ies"} (${kept} kept)`);
+  }
+  const list = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
+  return `You're seeing ${list}.${input.tools ? " read_prompt_manifest has the details." : ""}`;
 }
 
 /** How to use tools, by kind of channel. */
@@ -678,7 +802,7 @@ export function recentMessages(messages: Message[], limit: number): Message[] {
  *     line by line, like a chat log. That's the same format the model is
  *     asked to write in, so it can see who said what.
  */
-export function toChatHistory(messages: Message[], options: { texting?: boolean } = {}): ChatMessage[] {
+export function toChatHistory(messages: Message[], options: { texting?: boolean; editMarkers?: boolean } = {}): ChatMessage[] {
   const history: ChatMessage[] = [];
   for (const message of messages) {
     let content: string;
@@ -691,6 +815,8 @@ export function toChatHistory(messages: Message[], options: { texting?: boolean 
     } else {
       content = message.content.trim();
       if (content === "") continue;
+      // Their preference (the self-page): edited messages say so.
+      if (options.editMarkers && message.editedBy) content = `(edited by ${message.editedBy === "user" ? "the user" : "you"}) ${content}`;
       role = message.author === "user" ? "user" : "assistant";
       // Texting in OOC: your friend's bubbles are joined with the marker,
       // so the model keeps writing that way; yours, one per line.

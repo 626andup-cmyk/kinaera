@@ -35,13 +35,17 @@ import { Database } from "bun:sqlite";
  * ran it won't run it again. Add a new one to the end instead.
  *
  * Most steps are SQL. A step can also be a function, for moving data around
- * in ways that are easier to write in TypeScript.
+ * in ways that are easier to write in TypeScript. A step marked
+ * `{ rebuild: ... }` runs with foreign keys off: SQLite can only change a
+ * table's CHECK rules by building a new table and swapping it in, and with
+ * foreign keys on, dropping the old one would delete everything that
+ * points at it.
  *
  * Kinaera starts from Aettica's final layout, folded into one first step
  * (Aettica's own upgrade steps were for Aettica's data, which Kinaera
  * doesn't open; the importer reads it instead).
  */
-export type Migration = string | ((db: Database) => void);
+export type Migration = string | ((db: Database) => void) | { rebuild: string };
 
 export const MIGRATIONS: Migration[] = [
   // ---------------------------------------------------------------- 1
@@ -537,6 +541,109 @@ export const MIGRATIONS: Migration[] = [
   -- Profiles your friend may consult for a second opinion (consult).
   ALTER TABLE profiles ADD COLUMN consultant INTEGER NOT NULL DEFAULT 0;
   `,
+
+  // ---------------------------------------------------------------- 4
+  // Rebuild stage 4: what belongs to your friend. Their identity (every
+  // version kept), their self-page, their journal, moments kept in full, and
+  // orientation: a practice channel (a new kind, so the channels table is
+  // rebuilt) and a Practice folder in the notebook.
+  {
+    rebuild: `
+  CREATE TABLE channels_new (
+    id           TEXT PRIMARY KEY,
+    name         TEXT NOT NULL,
+    -- 'rp', 'ooc', or 'practice': your friend's own channel for trying
+    -- things out, which never feeds anything else.
+    kind         TEXT NOT NULL CHECK (kind IN ('rp', 'ooc', 'practice')),
+    position     INTEGER NOT NULL,
+    mode         TEXT NOT NULL DEFAULT 'literary' CHECK (mode IN ('literary', 'casual')),
+    pending_mode TEXT CHECK (pending_mode IN ('literary', 'casual')),
+    theme        TEXT,
+    assignment   TEXT,
+    category_id  TEXT REFERENCES categories (id) ON DELETE SET NULL,
+    created_at   TEXT NOT NULL
+  );
+  INSERT INTO channels_new (id, name, kind, position, mode, pending_mode, theme, assignment, category_id, created_at)
+    SELECT id, name, kind, position, mode, pending_mode, theme, assignment, category_id, created_at FROM channels;
+  DROP TABLE channels;
+  ALTER TABLE channels_new RENAME TO channels;
+
+  -- Every version of your friend's identity: who they are, and their tastes
+  -- (what they love, what bores them, what they'd never write). Your friend
+  -- owns it. The current identity is the newest 'accepted' version; your
+  -- edits arrive as 'pending' suggestions, which they accept or decline.
+  CREATE TABLE identity_versions (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    identity     TEXT NOT NULL,
+    tastes       TEXT NOT NULL DEFAULT '',
+    -- Who wrote this version.
+    author       TEXT NOT NULL CHECK (author IN ('user', 'friend')),
+    -- Why, in their words (or yours, for a suggestion).
+    note         TEXT NOT NULL DEFAULT '',
+    status       TEXT NOT NULL CHECK (status IN ('accepted', 'pending', 'declined', 'withdrawn')),
+    -- Your friend's reply to a suggestion of yours.
+    reply        TEXT,
+    created_at   TEXT NOT NULL,
+    resolved_at  TEXT,
+    -- When your friend's prompt first carried it (see src/identity.ts).
+    delivered_at TEXT
+  );
+
+  -- The self-page's own sections, by key: 'says' (what they say about
+  -- themselves), 'feedback' (how they'd like feedback), 'standing' (the
+  -- short version in every prompt), 'edit_markers' ('on' or 'off').
+  CREATE TABLE self_page (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+
+  -- "What my writing shows": notes on the self-page, each with the
+  -- messages that show it. Yours arrive as suggestions your friend accepts
+  -- (maybe with a reply) or declines; they can dispute any note.
+  CREATE TABLE self_notes (
+    id           TEXT PRIMARY KEY,
+    text         TEXT NOT NULL,
+    -- 'user': a note you added; 'mirror': a pattern your friend kept.
+    source       TEXT NOT NULL CHECK (source IN ('user', 'mirror')),
+    -- The messages that show it, as a JSON list of ids.
+    message_ids  TEXT NOT NULL DEFAULT '[]',
+    status       TEXT NOT NULL CHECK (status IN ('pending', 'accepted', 'declined', 'withdrawn')),
+    reply        TEXT,
+    dispute      TEXT,
+    created_at   TEXT NOT NULL,
+    resolved_at  TEXT,
+    delivered_at TEXT
+  );
+
+  -- Your friend's private journal (src/journal.ts). It has no screen in
+  -- the app, and its text is never written to any log.
+  CREATE TABLE journal (
+    id         TEXT PRIMARY KEY,
+    content    TEXT NOT NULL,
+    -- 1: carried forward, in every prompt; 0: fades as it ages.
+    kept       INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX journal_by_time ON journal (created_at);
+
+  -- Moments your friend asked to keep in full instead of summarized
+  -- (keep_verbatim), a few per channel.
+  CREATE TABLE verbatim (
+    channel_id TEXT NOT NULL REFERENCES channels (id) ON DELETE CASCADE,
+    message_id TEXT NOT NULL REFERENCES messages (id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (channel_id, message_id)
+  );
+
+  -- The Practice folder: sample notes for orientation, left out of every
+  -- listing and prompt but the practice channel's.
+  ALTER TABLE notebook_folders ADD COLUMN practice INTEGER NOT NULL DEFAULT 0;
+
+  -- Asks made during an orientation are marked as such in your inbox.
+  ALTER TABLE inbox ADD COLUMN orientation INTEGER NOT NULL DEFAULT 0;
+  `,
+  },
 ];
 
 /**
@@ -572,16 +679,29 @@ function migrate(db: Database): void {
   }
 
   for (let version = current; version < MIGRATIONS.length; version++) {
-    // A transaction makes the whole step happen completely or not at all, so
-    // a crash can't leave the database half-upgraded.
-    db.transaction(() => {
-      const step = MIGRATIONS[version]!;
-      if (typeof step === "string") db.exec(step);
-      else step(db);
-      // PRAGMA doesn't accept placeholders, but `version + 1` is our own
-      // number, so building the text directly is safe here.
-      db.exec(`PRAGMA user_version = ${version + 1}`);
-    })();
+    const step = MIGRATIONS[version]!;
+    // Foreign keys can only be switched off outside a transaction.
+    const rebuild = typeof step === "object";
+    if (rebuild) db.exec("PRAGMA foreign_keys = OFF");
+    try {
+      // A transaction makes the whole step happen completely or not at all, so
+      // a crash can't leave the database half-upgraded.
+      db.transaction(() => {
+        if (typeof step === "string") db.exec(step);
+        else if (typeof step === "function") step(db);
+        else {
+          db.exec(step.rebuild);
+          // Nothing may point at a row that isn't there.
+          const broken = db.query("PRAGMA foreign_key_check").all();
+          if (broken.length > 0) throw new Error(`Migration ${version + 1} broke ${broken.length} reference(s).`);
+        }
+        // PRAGMA doesn't accept placeholders, but `version + 1` is our own
+        // number, so building the text directly is safe here.
+        db.exec(`PRAGMA user_version = ${version + 1}`);
+      })();
+    } finally {
+      if (rebuild) db.exec("PRAGMA foreign_keys = ON");
+    }
   }
 }
 

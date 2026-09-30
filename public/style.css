@@ -2593,3 +2593,75 @@ button.attach-chip {
   height: 28px;
   font-size: 13px;
 }
+
+/* ------------------------------------------- the practice channel and friend page */
+
+/* Their practice channel sits apart at the bottom of the sidebar. */
+.practice-item {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--text-muted) 30%, transparent);
+  opacity: 0.85;
+}
+
+.self-section {
+  margin-top: 8px;
+}
+
+.self-subtitle {
+  margin: 12px 0 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.self-text {
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: var(--input-bg);
+  font-size: 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.self-empty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.self-suggest,
+.self-changelog {
+  margin-top: 10px;
+}
+
+.self-suggest summary,
+.self-changelog summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.self-notes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.self-note {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: var(--input-bg);
+  border-radius: var(--radius-md);
+  overflow-wrap: anywhere;
+}
+
+.self-reply {
+  margin-top: 4px;
+  padding-left: 8px;
+  border-left: 2px solid var(--text-muted);
+  font-size: 13px;
+}
+
+/* The practice channel is theirs: you read it, without editing anything. */
+[data-channel-kind="practice"] .message-actions {
+  display: none;
+}

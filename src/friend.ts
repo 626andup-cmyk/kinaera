@@ -43,9 +43,12 @@ import { parseExtraParams } from "./profiles.ts";
 import { buildPromptStack, isNothing, type PromptMemory, type PromptReview, type PromptThread, type WakeContext } from "./prompt.ts";
 import { channelSummaryText, splitScenes, windowStart, type SeqMessage } from "./summaries.ts";
 import { splitTexts } from "./texting.ts";
+import { VERBATIM_SLOTS } from "./verbatim.ts";
+import { wording } from "./wording.ts";
 import type { Store } from "./store.ts";
 import { extractTextToolCalls, parseArguments, type ParsedCall } from "./toolcalls.ts";
-import { runTool, toolSpecs, type ToolContext, type ToolOutcome } from "./tools.ts";
+import { isPrivateTool, runTool, toolSpecs, type ToolContext, type ToolOutcome } from "./tools.ts";
+import { invited, NEW_PROFILE, settleInvitation } from "./orientation.ts";
 import type { ApiMessage, ApiToolCall, Channel, ChatMessage, CommentThread, Message, Profile, ToolCallRecord } from "./types.ts";
 
 /** The most rounds of tool calls in one turn. The last round is offered no tools, so it has to write. */
@@ -109,8 +112,9 @@ export function pickProfile(store: Store, channel: Channel, random?: number, job
   const settings = store.getSettings();
   // Summaries (stage 7) have their own assignment, or use roleplay's.
   if (job === "summary") return store.profiles.pick(settings.summaryAssignment || settings.rpAssignment, false, random);
-  const assignment = channel.assignment ?? (channel.kind === "ooc" ? settings.oocAssignment : settings.rpAssignment);
-  return store.profiles.pick(assignment, channel.kind === "ooc", random);
+  // The practice channel is written like OOC: as themselves, with tools.
+  const assignment = channel.assignment ?? (channel.kind === "rp" ? settings.rpAssignment : settings.oocAssignment);
+  return store.profiles.pick(assignment, channel.kind !== "rp", random);
 }
 
 /** Options for building a channel's prompt. */
@@ -123,6 +127,11 @@ export interface PromptOptions {
   replyingTo?: string;
   /** A wake-up (stage 8). */
   wake?: WakeContext;
+  /**
+   * For the app's "Preview prompt": the journal is private, so its entries
+   * are replaced with a line saying so (the prompt itself still has them).
+   */
+  preview?: boolean;
 }
 
 /**
@@ -141,7 +150,8 @@ export function promptForChannel(store: Store, channelId: string, options: Promp
 
   // Everything from the notebook is as *your friend* may see it: entries
   // hidden from them never reach the prompt.
-  const notebook = channel.kind === "rp" ? store.notebook.forPrompt(channelId) : undefined;
+  const notebook = channel.kind !== "ooc" ? store.notebook.forPrompt(channelId) : undefined;
+  const practice = channel.kind === "practice";
 
   // Which messages are sent in full, and the summaries of those before
   // them (stage 7).
@@ -150,10 +160,24 @@ export function promptForChannel(store: Store, channelId: string, options: Promp
   const start = windowStart(seqMessages, channel.kind, {
     historyLimit: settings.historyLimit,
     summaryEvery: settings.summaryEvery,
-    enabled: settings.summaries,
+    // The practice channel is never summarized.
+    enabled: settings.summaries && !practice,
     current,
   });
-  const memory = settings.summaries ? memoryFor(store, channel, seqMessages, start) : undefined;
+  const memory = settings.summaries && !practice ? memoryFor(store, channel, seqMessages, start) : undefined;
+  // Moments kept in full that have scrolled out of the recent messages.
+  const kept = new Set(store.verbatim.ids(channelId));
+  const verbatim = messages.slice(0, start).filter((m) => kept.has(m.id));
+
+  // Their journal: private. The preview shows only that it's there.
+  const forJournal = store.journal.forPrompt();
+  const journal = options.preview
+    ? {
+        entries: forJournal.entries.map((e) => ({ ...e, content: "(private: the journal isn't shown in the app)" })),
+        faded: forJournal.faded,
+      }
+    : forJournal;
+  const identity = store.identity.current();
 
   // Notes you attached to messages still in the conversation, unless
   // they're already in the prompt as the cast, lore or linked notes.
@@ -203,7 +227,23 @@ export function promptForChannel(store: Store, channelId: string, options: Promp
     library: store.library.forChannel(channel),
     customEmojis: store.reactions.listEmojis().map((e) => e.name),
     categoryNames: Object.fromEntries(store.listCategories().map((c) => [c.id, c.name])),
+    identity: identity ? { identity: identity.identity, tastes: identity.tastes } : undefined,
+    selfPage: store.selfPage.view().standing,
+    journal,
+    verbatim,
+    editMarkers: store.selfPage.editMarkers(),
+    notices: noticesFor(store),
   });
+}
+
+/** Things your friend should know this turn, once: an orientation invitation, a new profile. */
+export function noticesFor(store: Store): string[] {
+  const notices: string[] = [];
+  const words = wording("orientation");
+  if (store.appState.get("orientation.invited")) notices.push(words.invitation ?? "The user invited you to an orientation.");
+  const names = store.appState.get(NEW_PROFILE);
+  if (names) notices.push((words["new-profile"] ?? "A new profile joined your roulette: {names}.").replace("{names}", names));
+  return notices;
 }
 
 /** How many finished scenes' summaries are sent in full (besides the story so far). */
@@ -289,7 +329,7 @@ export function mentionCandidates(ooc: Channel, channels: Channel[], window: Mes
   const escape = (name: string) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const found: { channel: Channel; explicit: boolean }[] = [];
   for (const channel of channels) {
-    if (channel.id === ooc.id) continue;
+    if (channel.id === ooc.id || channel.kind === "practice") continue;
     const name = channel.name.toLowerCase();
     if (text.includes(`#${name}`)) found.push({ channel, explicit: true });
     else if (name.length >= 3 && new RegExp(`(^|[^\\w])${escape(name)}($|[^\\w])`).test(text)) found.push({ channel, explicit: false });
@@ -311,10 +351,30 @@ function openThreads(store: Store, channelId: string, byId: Map<string, Message>
     }));
 }
 
-/** Suggestions waiting for your friend, described. */
+/** Suggestions waiting for your friend, described: notebook changes, their identity, notes for their self-page. */
 function reviewsFor(store: Store): PromptReview[] {
+  const quote = (text: string) => `"${text.replace(/\s+/g, " ").trim().slice(0, 1500)}"`;
+  const identity: PromptReview[] = store.identity.pending().map((v) => {
+    const now = store.identity.current();
+    const parts: string[] = [];
+    if (v.identity !== now?.identity) parts.push(`change who you are to ${quote(v.identity)}`);
+    if (v.tastes !== now?.tastes) parts.push(`change your tastes to ${quote(v.tastes)}`);
+    if (v.note) parts.push(`their note: ${quote(v.note)}`);
+    return { id: `i${v.id}`, entry: "your identity", description: parts.join("; ") || "a change", tool: "review_identity_suggestion" };
+  });
+  const notes: PromptReview[] = store.selfPage.pendingNotes().map((n) => ({
+    id: n.id,
+    entry: "your self-page",
+    description: `a note on what your writing shows: ${quote(n.text)}`,
+    tool: "review_self_note",
+  }));
+  return [...identity, ...notes, ...notebookReviews(store)];
+}
+
+/** Notebook suggestions waiting for your friend, described. */
+function notebookReviews(store: Store): PromptReview[] {
   return store.notebook.waitingFor("friend").flatMap((suggestion) => {
-    const entry = store.notebook.listEntries("friend").find((e) => e.id === suggestion.entryId);
+    const entry = store.notebook.listEntries("friend", true).find((e) => e.id === suggestion.entryId);
     if (!entry) return [];
     const change = suggestion.change;
     const parts: string[] = [];
@@ -430,7 +490,8 @@ export class Friend {
 
   constructor(
     private readonly store: Store,
-    private readonly api: ApiOptions,
+    /** The API it writes with (also used for `consult`). */
+    readonly api: ApiOptions,
   ) {}
 
   /** Whether a turn is in progress in a channel. */
@@ -497,6 +558,9 @@ export class Friend {
       const profile = options.profileId ? this.store.profiles.get(options.profileId) : pickProfile(this.store, channel);
       // Inbox outcomes this turn's prompt carries: delivered once it's done.
       const delivering = inboxFor(this.store).deliver;
+      // An orientation invitation is answered by this turn (src/orientation.ts).
+      const carriesInvitation = invited(this.store);
+      const newProfiles = this.store.appState.get(NEW_PROFILE);
       const conversation: ApiMessage[] = promptForChannel(this.store, channelId, {
         excludeIds: options.replacing,
         profile,
@@ -510,6 +574,7 @@ export class Friend {
         decider: this.decider ?? undefined,
         api: this.api,
         turn: { consults: 0 },
+        wake: options.wake?.reason,
       };
       const tools = profile.supportsTools ? toolSpecs(context) : [];
       const turnId = crypto.randomUUID();
@@ -526,6 +591,9 @@ export class Friend {
       // don't save it.
       if (controller.signal.aborted) throw new CancelledError();
       this.store.inbox.markDelivered(delivering);
+      if (carriesInvitation) settleInvitation(this.store);
+      // Told once (unless another joined in the meantime).
+      if (newProfiles && this.store.appState.get(NEW_PROFILE) === newProfiles) this.store.appState.set(NEW_PROFILE, null);
       const seconds = ((Date.now() - started) / 1000).toFixed(1);
       console.log(
         `[friend] turn finished in ${seconds}s after ${loop.rounds} round(s), ${loop.toolCalls.length} tool call(s)` +
@@ -645,9 +713,10 @@ export class Friend {
             turnId,
             round,
             name: call.name,
-            arguments: call.arguments,
-            // Private text (the journal, drafts) is never logged (see ToolOutcome.logResult).
-            result: JSON.stringify(outcome.logResult ?? outcome.result),
+            // Private tools (the journal, drafts): the log keeps that they
+            // ran, never what was in them (see ToolOutcome.logResult).
+            arguments: isPrivateTool(call.name) ? JSON.stringify("(private)") : call.arguments,
+            result: JSON.stringify(outcome.logResult ?? (isPrivateTool(call.name) ? "(private)" : outcome.result)),
             status: outcome.ok ? "ok" : "error",
             summary: outcome.summary,
             source: call.source,
@@ -655,7 +724,7 @@ export class Friend {
           }),
         );
         console.log(
-          `[tools] #${context.channel.name} round ${round + 1} (${call.source}): ${call.name} ${call.arguments.slice(0, 200)}` +
+          `[tools] #${context.channel.name} round ${round + 1} (${call.source}): ${call.name} ${isPrivateTool(call.name) ? "(private)" : call.arguments.slice(0, 200)}` +
             ` -> ${outcome.ok ? "ok" : "error"}: ${outcome.summary}`,
         );
         if (native) conversation.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(outcome.result) });
@@ -768,4 +837,69 @@ export async function testToolCalling(api: ApiOptions, profile: Profile): Promis
         arguments: call.arguments,
         seconds,
       };
+}
+
+/** What `read_prompt_manifest` tells your friend (KINAERA_REBUILD.md, section 6.9). */
+export interface PromptManifest {
+  /** Each section of the instructions, in order, and its size. */
+  layers: { title: string; characters: number }[];
+  /** The conversation: in full, summarized, or left out. */
+  messages: { inFull: number; summarized: string[]; leftOut: number; keptInFull: number; verbatimSlotsFree: number };
+  /** Journal entries in the prompt (by id), and how many have faded. */
+  journal: { included: string[]; faded: number };
+  /** Whether the short version of the self-page is in, and how long it is. */
+  selfPage: { characters: number };
+  /** Notebook entries pinned to this channel. */
+  pinned: string[];
+}
+
+/**
+ * What a turn in this channel would put in front of your friend: built from
+ * the same prompt the turn sends (with the journal's text left out, since
+ * the tool log could show this).
+ */
+export function promptManifest(store: Store, channelId: string, profile?: Profile): PromptManifest {
+  const channel = store.getChannel(channelId);
+  const settings = store.getSettings();
+  const system = promptForChannel(store, channelId, { profile, preview: true })[0]!.content;
+  const layers = system
+    .split(/^## /m)
+    .filter((part) => part.trim())
+    .map((part) => {
+      const [title, ...rest] = part.split("\n");
+      return { title: title!.trim(), characters: rest.join("\n").trim().length };
+    });
+  const messages = store.getMessages(channelId);
+  const seqMessages = store.summaries.withSeq(channelId, messages);
+  const current = store.summaries.all(channelId).find((s) => s.kind === "current") ?? null;
+  const practice = channel.kind === "practice";
+  const start = windowStart(seqMessages, channel.kind, {
+    historyLimit: settings.historyLimit,
+    summaryEvery: settings.summaryEvery,
+    enabled: settings.summaries && !practice,
+    current,
+  });
+  const memory = settings.summaries && !practice ? memoryFor(store, channel, seqMessages, start) : {};
+  const summarized = [
+    ...(memory.story ? ["the story so far"] : []),
+    ...(memory.scenes ?? []).map((s) => s.heading),
+    ...(memory.earlier ? ["earlier in this scene or conversation"] : []),
+  ];
+  const posts = (list: Message[]) => list.filter((m) => m.kind === "post").length;
+  const kept = store.verbatim.ids(channelId);
+  const older = messages.slice(0, start);
+  const journal = store.journal.forPrompt();
+  return {
+    layers,
+    messages: {
+      inFull: posts(messages.slice(start)),
+      summarized,
+      leftOut: summarized.length ? 0 : posts(older.filter((m) => !kept.includes(m.id))),
+      keptInFull: older.filter((m) => kept.includes(m.id)).length,
+      verbatimSlotsFree: Math.max(0, VERBATIM_SLOTS - kept.length),
+    },
+    journal: { included: journal.entries.map((e) => e.id.slice(0, 6)), faded: journal.faded },
+    selfPage: { characters: store.selfPage.view().standing.length },
+    pinned: store.notebook.forPrompt(channelId).pinned.map((p) => p.entry.name),
+  };
 }

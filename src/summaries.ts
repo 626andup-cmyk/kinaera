@@ -219,7 +219,7 @@ export class Summaries {
  * scenes) is one long "scene", its whole conversation.
  */
 export function splitScenes(messages: SeqMessage[], kind: ChannelKind): Scene[] {
-  if (kind === "ooc") return [{ start: null, end: null, posts: messages.filter((m) => m.kind === "post") }];
+  if (kind !== "rp") return [{ start: null, end: null, posts: messages.filter((m) => m.kind === "post") }];
   const scenes: Scene[] = [];
   let scene: Scene = { start: null, end: null, posts: [] };
   for (const message of messages) {
@@ -314,7 +314,7 @@ export function transcript(messages: Message[], kind: ChannelKind, friendName: s
   return messages.map((m) => {
     if (m.kind === "scene_break") return `--- Scene break${m.content ? `: "${m.content}"` : ""} ---`;
     let speaker: string;
-    if (kind === "ooc") speaker = m.author === "user" ? "The user" : `You (${friendName})`;
+    if (kind !== "rp") speaker = m.author === "user" ? "The user" : `You (${friendName})`;
     else if (m.characters.length > 0) speaker = m.characters.join(" & ");
     else speaker = m.author === "user" ? "The user (narration)" : `${friendName} (narration)`;
     return `${speaker}: ${m.content.trim()}`;

@@ -1,7 +1,7 @@
 /**
  * Friends and servers: the rail on the left, switching between friends,
- * the friend menu (name, avatar, colour, who they are), making new friends,
- * and server settings.
+ * the friend menu (name, avatar, colour, how they write; opened from their
+ * page, js/friend-self.js), making new friends, and server settings.
  */
 
 import { channelIcon, parseAddress, renderAll } from "./channels.js";
@@ -163,7 +163,7 @@ const currentFriendLook = () => ({ name: state.settings.friendName, avatar: stat
 
 // ------------------------------------------------------------ the friend menu
 
-function openFriend() {
+export function openFriend() {
   const s = state.settings;
   const form = $("friend-form").elements;
   paintAvatar($("friend-dialog-avatar"), currentFriendLook());
@@ -188,7 +188,7 @@ async function saveFriend(event) {
   event.preventDefault();
   const form = $("friend-form").elements;
   try {
-    const { settings } = await api("PUT", "/api/settings", {
+    const { settings, suggestion } = await api("PUT", "/api/settings", {
       friendName: form.friendName.value,
       friendAvatar: form.friendAvatar.value,
       friendColor: form.themeColor.checked ? -1 : Number(form.friendColor.value),
@@ -202,6 +202,8 @@ async function saveFriend(event) {
     });
     state.settings = settings;
     $("friend-dialog").close();
+    // A change to who they are is a suggestion, waiting for them.
+    if (suggestion) alert(`Your change to who ${settings.friendName} is was sent as a suggestion: they'll accept or decline it on their next turn.`);
     await loadHub();
     renderAll();
   } catch (error) {
@@ -286,6 +288,7 @@ function openNewFriend(serverId) {
     : "A new friend, with a server of their own. They start fresh: their own notebook, channels and memory, with your connection profiles and preferences.";
   $("new-server-name-row").hidden = Boolean(server);
   $("new-friend-surprise-result").textContent = "";
+  state.newFriendTastes = "";
   hideFormError(form);
   $("new-friend-dialog").showModal();
 }
@@ -296,10 +299,11 @@ async function surpriseNewFriend() {
   button.disabled = true;
   result.textContent = "Rolling…";
   try {
-    const { name, prompt, seeds } = await api("POST", "/api/friend/random", {});
+    const { name, prompt, tastes, seeds } = await api("POST", "/api/friend/random", {});
     const form = $("new-friend-form").elements;
     form.name.value = name;
     form.prompt.value = prompt;
+    state.newFriendTastes = tastes ?? "";
     result.textContent = `Meet ${name} (${seeds}). Roll again, or Create.`;
   } catch (error) {
     result.textContent = `✗ ${error.message}`;
@@ -313,6 +317,8 @@ async function createFriend(event) {
   const form = $("new-friend-form").elements;
   const body = { name: form.name.value, avatar: form.avatar.value, copyFrom: state.friendId };
   if (form.prompt.value.trim()) body.prompt = form.prompt.value;
+  // Tastes rolled with "Surprise me" (theirs to rewrite from then on).
+  if (state.newFriendTastes) body.tastes = state.newFriendTastes;
   const button = $("new-friend-create");
   button.disabled = true;
   try {
@@ -377,8 +383,6 @@ async function deleteServer() {
   }
 }
 
-$("friend-card").addEventListener("click", openFriend);
-$("friend-card").addEventListener("keydown", (event) => (event.key === "Enter" || event.key === " ") && (event.preventDefault(), openFriend()));
 $("open-friend-from-settings").addEventListener("click", () => {
   els.settingsDialog.close();
   openFriend();

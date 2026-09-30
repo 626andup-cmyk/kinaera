@@ -64,6 +64,8 @@ export interface InboxItem {
   status: InboxStatus;
   /** Your answer to an ask. */
   answer: string | null;
+  /** Asked during an orientation (marked as such in your inbox). */
+  orientation: boolean;
   createdAt: string;
   resolvedAt: string | null;
   deliveredAt: string | null;
@@ -79,6 +81,7 @@ interface InboxRow {
   channel_id: string | null;
   status: InboxStatus;
   answer: string | null;
+  orientation: number;
   created_at: string;
   resolved_at: string | null;
   delivered_at: string | null;
@@ -94,6 +97,7 @@ const toItem = (r: InboxRow): InboxItem => ({
   channelId: r.channel_id,
   status: r.status,
   answer: r.answer,
+  orientation: r.orientation === 1,
   createdAt: r.created_at,
   resolvedAt: r.resolved_at,
   deliveredAt: r.delivered_at,
@@ -127,17 +131,17 @@ export class Inbox {
   // ---------------------------------------------------------------- asks
 
   /** Your friend asks you something. */
-  ask(askKind: AskKind, text: string, channelId: string | null): InboxItem {
+  ask(askKind: AskKind, text: string, channelId: string | null, orientation = false): InboxItem {
     if (!ASK_KINDS.includes(askKind)) throw new ValidationError(`"kind" must be one of: ${ASK_KINDS.join(", ")}.`);
     const clean = text.trim();
     if (!clean) throw new ValidationError("An ask needs some text.");
     const id = crypto.randomUUID();
     this.db
       .query(
-        `INSERT INTO inbox (id, kind, ask_kind, text, channel_id, created_at)
-         VALUES ($id, 'ask', $askKind, $text, $channelId, $now)`,
+        `INSERT INTO inbox (id, kind, ask_kind, text, channel_id, orientation, created_at)
+         VALUES ($id, 'ask', $askKind, $text, $channelId, $orientation, $now)`,
       )
-      .run({ id, askKind, text: clean.slice(0, MAX_TEXT), channelId, now: this.now().toISOString() });
+      .run({ id, askKind, text: clean.slice(0, MAX_TEXT), channelId, orientation: orientation ? 1 : 0, now: this.now().toISOString() });
     return this.get(id);
   }
 

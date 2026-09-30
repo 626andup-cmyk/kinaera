@@ -85,7 +85,7 @@ export async function openChannel(channelId) {
 /** The channel named in the address bar, if it exists. */
 export function channelFromAddress() {
   const { channelId } = parseAddress();
-  return state.channels.some((c) => c.id === channelId) ? channelId : null;
+  return state.channels.some((c) => c.id === channelId) || state.practice?.id === channelId ? channelId : null;
 }
 
 /** The friend and channel in the address: #/p/<friend>/channel/<id> (or the older #/channel/<id>). */
@@ -209,6 +209,8 @@ export function renderSidebar() {
       items.push(renderChannelItem(channel, category));
     }
   }
+  // Their practice channel, apart from the rest (not draggable).
+  if (state.practice) items.push(renderPracticeItem(state.practice));
   // Other friends in this server: their channels, under their names.
   const others = otherFriendItems();
   els.channelList.replaceChildren(...others.before, ...(others.header ? [others.header] : []), ...items, ...others.after);
@@ -221,6 +223,17 @@ export function renderSidebar() {
   els.friendName.textContent = friendName;
   paintAvatar(els.friendAvatar, { name: friendName, avatar: state.settings?.friendAvatar, color: state.settings?.friendColor });
   renderRail();
+}
+
+/** The practice channel: your friend's own, which you can read. */
+function renderPracticeItem(channel) {
+  const item = renderChannelItem(channel, null);
+  delete item.dataset.channelId; // not one of the channels you order
+  item.dataset.practiceId = channel.id;
+  item.className = "practice-item";
+  const link = item.querySelector(".channel-link");
+  link.title = `${state.settings.friendName}'s own channel, for trying things out. You can read it.`;
+  return item;
 }
 
 /** One channel in the sidebar. */
@@ -621,6 +634,7 @@ function renderChannelHeader() {
 function channelTopic(channel) {
   const friendName = state.settings.friendName;
   if (channel.kind === "ooc") return `Out of character with ${friendName}`;
+  if (channel.kind === "practice") return `${friendName}'s own channel, for trying things out. You can read it; nothing here feeds anything else.`;
   const parts = [];
   const theirs = castNames(channel, "friend");
   const yours = castNames(channel, "user");

@@ -10,6 +10,8 @@
  *   - **a suggestion of yours is waiting for their review**
  *   - **you answered something they asked** (src/inbox.ts)
  *   - **the heartbeat**, a timer: see src/heartbeat.ts
+ *   - **orientation** and **the weekly look back**, in their practice
+ *     channel (src/orientation.ts)
  *
  * A wake-up is a turn in your OOC channel (the one you talked in last),
  * with tools if the profile has them. Its prompt says why they're up, how
@@ -45,9 +47,29 @@ import type { WakeContext, WakeReason } from "./prompt.ts";
 import type { Store } from "./store.ts";
 import { splitScenes } from "./summaries.ts";
 import type { Channel, Message } from "./types.ts";
+import { orientationGuide } from "./orientation.ts";
+import { toolSpecs } from "./tools.ts";
 
 /** What can wake your friend up from outside. */
-export type WakeEvent = "opened" | "scene-ended" | "review" | "heartbeat" | "answer";
+export type WakeEvent = "opened" | "scene-ended" | "review" | "heartbeat" | "answer" | "orientation" | "lookback";
+
+/** Details some events come with. */
+export interface WakeDetail {
+  /** "scene-ended": the channel and the scene break. */
+  channelId?: string;
+  breakId?: string;
+  /** "orientation": what they asked to focus on. */
+  focus?: string;
+  /** "lookback": the start of the week looked back on. */
+  since?: string;
+}
+
+/**
+ * Turns your friend takes in their own practice channel, for themselves:
+ * they message no one, so "no double texts" and "never mid-conversation"
+ * don't apply (src/orientation.ts).
+ */
+const OWN_TIME: WakeReason[] = ["orientation", "lookback"];
 
 /** What came of a wake-up. */
 export type WakeOutcome = "posted" | "quiet" | "failed";
@@ -177,7 +199,7 @@ export class Wakeups {
    *
    * @param detail  For "scene-ended": the channel and the scene break.
    */
-  async event(event: WakeEvent, detail: { channelId?: string; breakId?: string } = {}): Promise<WakeResult> {
+  async event(event: WakeEvent, detail: WakeDetail = {}): Promise<WakeResult> {
     const skip = (why: string): WakeResult => ({ outcome: null, reason: null, detail: why, messages: [] });
     if (this.running) return skip("Your friend is already waking up.");
     this.running = true;
@@ -208,6 +230,7 @@ export class Wakeups {
     const now = this.now();
     const skip = (why: string) => ({ skip: why });
     if (!this.hasApiKey) return skip("There's no API key yet.");
+    if (OWN_TIME.includes(event)) return this.ownTimeRules(event);
 
     // Where your friend is, and how long since you wrote.
     const channels = store.listChannels();
@@ -245,23 +268,46 @@ export class Wakeups {
     return { reason, channel, sinceMs };
   }
 
-  private async wake(
-    event: WakeEvent,
-    detail: { channelId?: string; breakId?: string },
-    skip: (why: string) => WakeResult,
-  ): Promise<WakeResult> {
+  /**
+   * The rules for a turn of their own, in the practice channel: quiet hours
+   * and the cooldown, as always. The look back also follows chattiness
+   * ("off" means only when you write); orientation doesn't, since it's how
+   * a friend starts out.
+   */
+  private ownTimeRules(event: WakeEvent): { skip: string } | { reason: WakeReason; channel: Channel; sinceMs: number | null } {
+    const { store } = this;
+    const settings = store.getSettings();
+    const now = this.now();
+    const reason = event as WakeReason;
+    const skip = (why: string) => ({ skip: why });
+    if (reason === "lookback" && settings.wakeups === "off") return skip("Your friend doesn't take turns on their own at this chattiness.");
+    if (inQuietHours(now, settings.quietStart, settings.quietEnd)) return skip("It's quiet hours.");
+    const lastTurn = store.wakeLog.lastTurnAt();
+    if (lastTurn && now.getTime() - lastTurn.getTime() < settings.wakeCooldownMinutes * 60_000) return skip("It's too soon after the last wake-up.");
+    const channel = store.ensurePractice();
+    if (this.friend.isBusy(channel.id)) return skip("Your friend is writing there already.");
+    if (!pickProfile(store, channel).supportsTools) return skip("The profile that writes there can't use tools.");
+    return { reason, channel, sinceMs: null };
+  }
+
+  private async wake(event: WakeEvent, detail: WakeDetail, skip: (why: string) => WakeResult): Promise<WakeResult> {
     const checked = this.rules(event);
     if ("skip" in checked) return skip(checked.skip);
     const { reason, channel, sinceMs } = checked;
     const context = wakeContext(this.store, reason, sinceMs, detail);
+    if (reason === "orientation") {
+      const tools = toolSpecs({ store: this.store, channel, mode: "post", api: this.friend.api }).map((t) => t.function.name);
+      context.orientation = orientationGuide(tools, detail.focus ?? null);
+    }
 
     try {
       const result = await this.friend.takeTurn(channel.id, "wake", { wake: context });
       const wrote = result.messages.length > 0;
       const acted = result.toolCalls.filter((c) => c.status === "ok").map((c) => c.summary);
-      const why = wrote ? "They wrote to you." : acted.length ? `They acted (${acted.join("; ")}) and didn't write.` : "They chose not to write.";
+      const why = wrote ? (OWN_TIME.includes(reason) ? "They wrote in their practice channel." : "They wrote to you.") : acted.length ? `They acted (${acted.join("; ")}) and didn't write.` : "They chose not to write.";
       const logged = { ...this.log(reason, wrote ? "posted" : "quiet", channel, why), messages: result.messages };
-      if (wrote) {
+      // Writing in the practice channel messages no one: no notification.
+      if (wrote && !OWN_TIME.includes(reason)) {
         try {
           this.onPosted?.(channel, result.messages);
         } catch (error) {
@@ -298,12 +344,7 @@ export function homeChannel(store: Store, channels: Channel[]): Channel | null {
 }
 
 /** What a wake-up turn is told: why, since when, what's waiting, and a scene that just ended. */
-export function wakeContext(
-  store: Store,
-  reason: WakeReason,
-  sinceMs: number | null,
-  detail: { channelId?: string; breakId?: string },
-): WakeContext {
+export function wakeContext(store: Store, reason: WakeReason, sinceMs: number | null, detail: WakeDetail): WakeContext {
   const waiting: string[] = [];
   const entries = store.notebook.listEntries("friend");
   const nameOf = (entryId: string) => entries.find((e) => e.id === entryId)?.name ?? "an entry";
@@ -313,11 +354,21 @@ export function wakeContext(
   for (const s of store.notebook.waitingFor("user").filter((s) => s.author === "friend")) {
     waiting.push(`Your suggested change to ${nameOf(s.entryId)} is waiting for the user.`);
   }
+  for (const v of store.identity.pending()) {
+    waiting.push(`The user's suggested change to your identity (i${v.id}) is waiting for you to accept or decline.`);
+  }
+  for (const n of store.selfPage.pendingNotes().filter((n) => n.source === "user")) {
+    waiting.push(`The user's note for your self-page ("${n.text.slice(0, 120)}") is waiting for you to accept or decline.`);
+  }
   for (const item of store.inbox.open()) {
     waiting.push(item.kind === "ask" ? `Your ask ("${item.text.slice(0, 120)}") is waiting for the user.` : `Your proposal to delete #${item.targetName} is waiting for the user.`);
   }
 
   const context: WakeContext = { reason, sinceUser: sinceMs === null ? null : humanDuration(sinceMs), waiting };
+  if (reason === "lookback") {
+    const since = detail.since ?? new Date(Date.now() - 7 * 86_400_000).toISOString();
+    context.lookback = store.journal.since(since);
+  }
   if (reason === "scene-ended" && detail.channelId) {
     const channel = store.getChannel(detail.channelId);
     const messages = store.summaries.withSeq(channel.id, store.getMessages(channel.id));

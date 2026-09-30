@@ -133,9 +133,13 @@ describe("the intervention log", () => {
   });
 
   test("records changes to who your friend is and how they write, not other settings", async () => {
-    await call("PUT", "/api/settings", { friendPrompt: "You are Arlo, a lighthouse romantic.", historyLimit: 30 });
+    await call("PUT", "/api/settings", { friendPrompt: "You are Arlo, a lighthouse romantic.", literaryPrompt: "Write long.", historyLimit: 30 });
     const { data } = await call("GET", "/api/interventions");
-    expect(data.interventions.map((e: { summary: string }) => e.summary)).toEqual(["The user changed your identity (who you are)."]);
+    // Their identity is theirs: your change is a suggestion (src/identity.ts).
+    expect(data.interventions.map((e: { summary: string }) => e.summary)).toEqual([
+      "The user changed how you write in literary scenes.",
+      "The user suggested a change to your identity.",
+    ]);
   });
 
   test("clearing a channel with your friend's messages in it", async () => {

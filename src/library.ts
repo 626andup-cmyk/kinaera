@@ -297,7 +297,7 @@ export class Library {
 
   /** The documents your friend can use in a channel: its own, the unlimited ones, and all of them in OOC. */
   forChannel(channel: Pick<Channel, "id" | "kind">): LibraryDoc[] {
-    return this.list().filter((d) => channel.kind === "ooc" || d.channelIds.length === 0 || d.channelIds.includes(channel.id));
+    return this.list().filter((d) => channel.kind !== "rp" || d.channelIds.length === 0 || d.channelIds.includes(channel.id));
   }
 
   /** Add a document: split it into passages and index them. */

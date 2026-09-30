@@ -27,6 +27,12 @@ import { Library } from "./library.ts";
 import { Reactions } from "./reactions.ts";
 import { AppState } from "./appstate.ts";
 import { Interventions } from "./interventions.ts";
+import { Identity } from "./identity.ts";
+import { Journal } from "./journal.ts";
+import { SelfPage } from "./selfpage.ts";
+import { Verbatim } from "./verbatim.ts";
+import { queueOrientation } from "./orientation.ts";
+import { parseSections } from "./wording.ts";
 import type {
   Category,
   Author,
@@ -523,6 +529,14 @@ export class Store {
   readonly appState: AppState;
   /** Everything you do that affects your friend (see `src/interventions.ts`). */
   readonly interventions: Interventions;
+  /** Your friend's identity and tastes, every version kept (see `src/identity.ts`). */
+  readonly identity: Identity;
+  /** Your friend's self-page (see `src/selfpage.ts`). */
+  readonly selfPage: SelfPage;
+  /** Your friend's private journal (see `src/journal.ts`). */
+  readonly journal: Journal;
+  /** Moments your friend asked to keep in full (see `src/verbatim.ts`). */
+  readonly verbatim: Verbatim;
   /** Your friend's recent wake-ups, and what came of them (see `src/wakeups.ts`). */
   readonly wakeLog: WakeLog;
   /**
@@ -576,8 +590,45 @@ export class Store {
     this.wakeLog = new WakeLog(this.db);
     this.appState = new AppState(this.db);
     this.interventions = new Interventions(this.db);
+    this.identity = new Identity(this.db, (identity) => this.updateSettings({ friendPrompt: identity }));
+    this.selfPage = new SelfPage(this.db);
+    this.journal = new Journal(this.db);
+    this.verbatim = new Verbatim(this.db);
 
-    if (isNew) this.seed(options.example ?? true);
+    if (isNew) {
+      this.seed(options.example ?? true);
+      // A new friend's first turn of their own is an orientation.
+      queueOrientation(this);
+    }
+    // Every friend has an identity of their own, and a practice channel.
+    if (!this.identity.current()) this.identity.begin(this.getSettings().friendPrompt, isNew && options.example !== false ? readDefault("tastes.md") : "");
+    this.ensurePractice();
+  }
+
+  /**
+   * Orientation's practice channel and Practice folder (src/orientation.ts),
+   * made if they aren't there yet: the channel, and a few sample notes
+   * (defaults/practice.md) pinned only to it.
+   */
+  ensurePractice(): Channel {
+    let channel = this.practiceChannel();
+    if (!channel) channel = this.createChannel({ name: "practice", kind: "practice" });
+    if (!this.notebook.practiceFolder()) {
+      const folder = this.notebook.createPracticeFolder();
+      for (const [heading, body] of Object.entries(parseSections(readDefault("practice.md")))) {
+        const match = heading.match(/^(.+?)\s*\((character|lore)\)\s*$/);
+        if (!match) continue;
+        const fields = body
+          .split("\n")
+          .map((line) => line.match(/^\s*([^:\n]{1,30}):\s*(.+)$/))
+          .filter((m): m is RegExpMatchArray => m !== null)
+          .map((m) => ({ label: m[1]!.trim(), value: m[2]!.trim() }));
+        const entry = this.notebook.createEntry("friend", { kind: match[2], name: match[1]!.trim(), fields });
+        this.notebook.updateEntrySettings("friend", entry.id, { folderId: folder.id });
+        this.notebook.pin("friend", channel.id, entry.id);
+      }
+    }
+    return channel;
   }
 
   /**
@@ -628,10 +679,19 @@ export class Store {
 
   // -------------------------------------------------------------- channels
 
-  /** Every channel, in sidebar order. */
+  /**
+   * Every channel, in sidebar order. The practice channel isn't one of them:
+   * it's your friend's own, shown apart (see `practiceChannel`).
+   */
   listChannels(): Channel[] {
-    const rows = this.db.query("SELECT * FROM channels ORDER BY position").all() as ChannelRow[];
+    const rows = this.db.query("SELECT * FROM channels WHERE kind != 'practice' ORDER BY position").all() as ChannelRow[];
     return rows.map(toChannel);
+  }
+
+  /** Your friend's practice channel (made with the store, so always there after startup). */
+  practiceChannel(): Channel | null {
+    const row = this.db.query("SELECT * FROM channels WHERE kind = 'practice'").get() as ChannelRow | null;
+    return row ? toChannel(row) : null;
   }
 
   /** One channel. Throws `NotFoundError` if there's no such channel. */
@@ -648,7 +708,7 @@ export class Store {
 
   /** Create a channel at the bottom of the sidebar. */
   createChannel(input: NewChannel & { categoryId?: string | null }): Channel {
-    const { next } = this.db.query("SELECT COALESCE(MAX(position) + 1, 0) AS next FROM channels").get() as {
+    const { next } = this.db.query("SELECT COALESCE(MAX(position) + 1, 0) AS next FROM channels WHERE kind != 'practice'").get() as {
       next: number;
     };
     const id = crypto.randomUUID();
@@ -833,6 +893,9 @@ export class Store {
    * Throws `NotFoundError` if there's no such channel.
    */
   deleteChannel(id: string): void {
+    if (this.hasChannel(id) && this.getChannel(id).kind === "practice") {
+      throw new ValidationError("The practice channel is your friend's own, and can't be deleted.");
+    }
     const result = this.db.query("DELETE FROM channels WHERE id = $id").run({ id });
     if (result.changes === 0) throw new NotFoundError("channel");
     this.library.channelDeleted(id);

@@ -29,6 +29,13 @@ export const state = {
    * `playedBy` is "user", "friend" or "both" (shared characters).
    */
   channels: [],
+  /**
+   * Your friend's own practice channel (src/orientation.ts), shown apart at
+   * the bottom of the sidebar. You can read it, not write in it.
+   */
+  practice: null,
+  /** Your suggestions for their identity and self-page still waiting for them: {identity, selfNotes}. */
+  waiting: { identity: [], selfNotes: [] },
   /** Channel categories, in sidebar order: {id, name, position, collapsed}. */
   categories: [],
   /** Id of the open channel, or null if there are no channels. */
@@ -135,7 +142,7 @@ export const els = {
 
 /** The open channel's full details, or undefined. */
 export function currentChannel() {
-  return state.channels.find((c) => c.id === state.channelId);
+  return state.channels.find((c) => c.id === state.channelId) ?? (state.practice?.id === state.channelId ? state.practice : undefined);
 }
 
 // ------------------------------------------------------------ server API

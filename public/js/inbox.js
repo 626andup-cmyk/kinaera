@@ -67,7 +67,9 @@ export function renderInbox() {
         `${friend} asks you`,
         asks.map((ask) => {
           const where = state.channels.find((c) => c.id === ask.channelId);
-          const card = inboxCard(ASK_TITLES[ask.askKind] ?? "A question", `“${ask.text}”`);
+          const title = ASK_TITLES[ask.askKind] ?? "A question";
+          // Asked while trying their tools out (src/orientation.ts): low stakes.
+          const card = inboxCard(ask.orientation ? `${title} (orientation)` : title, `“${ask.text}”`);
           const meta = document.createElement("p");
           meta.className = "hint";
           meta.textContent = `Asked ${formatTime(ask.createdAt)}${where ? ` in #${where.name}` : ""}. Your answer reaches ${friend} on their next turn.`;
@@ -123,19 +125,32 @@ export function renderInbox() {
       ),
     );
   }
-  if (yours.length) {
+  // Your suggestions for their identity and self-page (their page has more).
+  const identity = state.waiting.identity.map((v) => {
+    const card = inboxCard("You: a change to who they are", v.note ? `“${v.note}”` : "");
+    card.append(cardButtons([["Withdraw", () => withdrawWaiting(`/api/identity/suggestions/${v.id}/withdraw`)]]));
+    return card;
+  });
+  const notes = state.waiting.selfNotes.map((n) => {
+    const card = inboxCard("You: a note for their self-page", `“${n.text}”`);
+    card.append(cardButtons([["Withdraw", () => withdrawWaiting(`/api/self-page/notes/${encodeURIComponent(n.id)}/withdraw`)]]));
+    return card;
+  });
+  if (yours.length || identity.length || notes.length) {
+    const hint = document.createElement("p");
+    hint.className = "hint";
+    hint.textContent = `${friend} reviews these on their next turn with tools.`;
     sections.push(
-      inboxSection(
-        `Waiting for ${friend}`,
-        yours.map((s) => {
+      inboxSection(`Waiting for ${friend}`, [
+        hint,
+        ...yours.map((s) => {
           const card = suggestionCard(s);
-          const note = document.createElement("p");
-          note.className = "hint";
-          note.textContent = `${friend} reviews these on their next turn with tools.`;
-          card.append(note, cardButtons([["Withdraw", () => reviewSuggestion(s.id, "withdraw")]]));
+          card.append(cardButtons([["Withdraw", () => reviewSuggestion(s.id, "withdraw")]]));
           return card;
         }),
-      ),
+        ...identity,
+        ...notes,
+      ]),
     );
   }
   if (sections.length === 0) {
@@ -232,6 +247,16 @@ async function reviewSuggestion(id, action) {
   try {
     await api("POST", `/api/notebook/suggestions/${encodeURIComponent(id)}/${action}`, {});
     await refreshNotebook();
+  } catch (error) {
+    showFormError($("inbox-dialog"), error.message);
+  }
+}
+
+/** Take back one of your identity or self-page suggestions. */
+async function withdrawWaiting(path) {
+  try {
+    state.waiting = (await api("POST", path, {})).waiting;
+    renderInbox();
   } catch (error) {
     showFormError($("inbox-dialog"), error.message);
   }

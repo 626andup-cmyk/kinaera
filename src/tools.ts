@@ -22,7 +22,9 @@
 
 import { CHECK_SOURCES, DEFAULT_SOURCES, runCheck, type CheckSource } from "./check.ts";
 import { NotFoundError, PermissionError, ValidationError } from "./errors.ts";
-import { profileRequest } from "./friend.ts";
+import { pickProfile, profileRequest, promptManifest } from "./friend.ts";
+import { queueOrientation } from "./orientation.ts";
+import { VERBATIM_SLOTS } from "./verbatim.ts";
 import { ASK_KIND_NAMES, ASK_KINDS, type AskKind } from "./inbox.ts";
 import type { Decider } from "./jev.ts";
 import { ApiError, createChatCompletion, type ApiOptions } from "./nanogpt.ts";
@@ -47,6 +49,8 @@ export interface ToolContext {
   api?: ApiOptions;
   /** Counts for this turn, for its limits (one `consult` per turn). */
   turn?: { consults: number };
+  /** Why this turn is happening, if it's a turn of their own (asks in an orientation are marked). */
+  wake?: string;
 }
 
 /** What running a tool produced. */
@@ -78,6 +82,11 @@ interface ToolDefinition {
   parameters: Record<string, unknown>;
   /** Whether the tool is offered in this context (default: always). */
   available?: (ctx: ToolContext) => boolean;
+  /**
+   * Private (the journal): the tool log keeps that it was used, never its
+   * arguments or result, and its summary never quotes what it says.
+   */
+  private?: boolean;
   run: (ctx: ToolContext, args: Record<string, unknown>) => ToolRun | Promise<ToolRun>;
 }
 
@@ -110,8 +119,9 @@ const norm = (s: string) => s.trim().toLowerCase();
  * Find an entry your friend can see by name: exact (ignoring case) first,
  * then a unique partial match. Otherwise explain, listing names.
  */
-function findEntry(store: Store, name: string): EntryView {
-  const entries = store.notebook.listEntries("friend");
+function findEntry(ctx: Pick<ToolContext, "store" | "channel">, name: string): EntryView {
+  // Practice notes are only found from the practice channel.
+  const entries = ctx.store.notebook.listEntries("friend", ctx.channel.kind === "practice");
   const wanted = norm(name.replace(/^\[\[|\]\]$/g, ""));
   const exact = entries.find((e) => norm(e.name) === wanted);
   if (exact) return exact;
@@ -244,8 +254,9 @@ const TOOLS: ToolDefinition[] = [
     description:
       "Read a notebook entry (a character or lore) in full: its fields, notes and links. Use it whenever a character or place comes up that you need details on.",
     parameters: object({ name: str("The entry's name.") }, ["name"]),
-    run: ({ store }, args) => {
-      const entry = findEntry(store, need(args, "name"));
+    run: (ctx, args) => {
+      const { store } = ctx;
+      const entry = findEntry(ctx, need(args, "name"));
       const channels = new Map(store.listChannels().map((c) => [c.id, hash(c)]));
       return {
         result: {
@@ -269,7 +280,7 @@ const TOOLS: ToolDefinition[] = [
     run: ({ store, channel }, args) => {
       const query = maybe(args, "query");
       const entries = store.notebook
-        .listEntries("friend")
+        .listEntries("friend", channel.kind === "practice")
         .filter((e) => !query || plain([e.name, e.systemPrompt, ...e.fields.map((f) => f.value)].join(" ")).includes(plain(query)));
       return {
         result: entries.slice(0, 50).map((e) => ({
@@ -332,8 +343,9 @@ const TOOLS: ToolDefinition[] = [
       },
       ["name"],
     ),
-    run: ({ store }, args) => {
-      const entry = findEntry(store, need(args, "name"));
+    run: (ctx, args) => {
+      const { store } = ctx;
+      const entry = findEntry(ctx, need(args, "name"));
       const change: Record<string, unknown> = {};
       const newName = maybe(args, "new_name");
       if (newName) change.name = newName;
@@ -354,8 +366,9 @@ const TOOLS: ToolDefinition[] = [
     description:
       "Delete a notebook entry. Your own entries are deleted at once; for the user's entries or shared lore, this sends the user a suggestion to delete it instead.",
     parameters: object({ name: str("The entry.") }, ["name"]),
-    run: ({ store }, args) => {
-      const entry = findEntry(store, need(args, "name"));
+    run: (ctx, args) => {
+      const { store } = ctx;
+      const entry = findEntry(ctx, need(args, "name"));
       const outcome = store.notebook.deleteEntry("friend", entry.id);
       return "deleted" in outcome
         ? { result: { deleted: entry.name }, summary: `deleted ${entry.name}` }
@@ -374,8 +387,9 @@ const TOOLS: ToolDefinition[] = [
       },
       ["name"],
     ),
-    run: ({ store }, args) => {
-      const entry = findEntry(store, need(args, "name"));
+    run: (ctx, args) => {
+      const { store } = ctx;
+      const entry = findEntry(ctx, need(args, "name"));
       const editing = { edit: "open", suggest: "suggest", read: "locked" }[String(args.user_can ?? "")];
       if (args.user_can !== undefined && !editing) throw new ToolError('"user_can" must be edit, suggest or read.');
       store.notebook.updateEntrySettings("friend", entry.id, {
@@ -412,7 +426,7 @@ const TOOLS: ToolDefinition[] = [
     description: "Add a notebook entry to a channel's cast (this channel unless you name another).",
     parameters: object({ name: str("The entry."), channel: str("Optional: another channel, like #story.") }, ["name"]),
     run: (ctx, args) => {
-      const entry = findEntry(ctx.store, need(args, "name"));
+      const entry = findEntry(ctx, need(args, "name"));
       const channel = findChannel(ctx, maybe(args, "channel"));
       ctx.store.notebook.pin("friend", channel.id, entry.id);
       return { result: { pinned: entry.name, channel: hash(channel) }, summary: `pinned ${entry.name} to ${hash(channel)}` };
@@ -423,7 +437,7 @@ const TOOLS: ToolDefinition[] = [
     description: "Take a notebook entry out of a channel's cast (this channel unless you name another). It stays in the notebook.",
     parameters: object({ name: str("The entry."), channel: str("Optional: another channel.") }, ["name"]),
     run: (ctx, args) => {
-      const entry = findEntry(ctx.store, need(args, "name"));
+      const entry = findEntry(ctx, need(args, "name"));
       const channel = findChannel(ctx, maybe(args, "channel"));
       ctx.store.notebook.unpin("friend", channel.id, entry.id);
       return { result: { unpinned: entry.name, channel: hash(channel) }, summary: `unpinned ${entry.name} from ${hash(channel)}` };
@@ -444,10 +458,11 @@ const TOOLS: ToolDefinition[] = [
       },
       ["name", "kind"],
     ),
-    run: ({ store }, args) => {
+    run: (ctx, args) => {
+      const { store } = ctx;
       const kind = args.kind === "ooc" ? "ooc" : args.kind === "roleplay" || args.kind === "rp" ? "rp" : null;
       if (!kind) throw new ToolError('"kind" must be roleplay or ooc.');
-      const cast = Array.isArray(args.cast) ? args.cast.map((n) => findEntry(store, String(n))) : [];
+      const cast = Array.isArray(args.cast) ? args.cast.map((n) => findEntry(ctx, String(n))) : [];
       const category = maybe(args, "category");
       const channel = store.createChannel({
         name: need(args, "name").replace(/^#/, ""),
@@ -763,7 +778,19 @@ const INSTRUMENTS: ToolDefinition[] = [];
 
 /** Every tool: the instruments first, then the rest (do_nothing last). */
 function allTools(): ToolDefinition[] {
-  return [...INSTRUMENTS, ...TOOLS];
+  return [...INSTRUMENTS, ...OWN, ...TOOLS];
+}
+
+/** The friend's own things: identity, self-page, journal, their prompt, orientation (defined below). */
+const OWN: ToolDefinition[] = [];
+
+/** A journal entry by its short id. */
+function journalEntry(ctx: ToolContext, id: string) {
+  try {
+    return ctx.store.journal.find(id.replace(/^\[|\]$/g, ""));
+  } catch {
+    throw new ToolError(`There's no journal entry "${id}". Entry ids are the six characters in brackets, like [a1b2c3].`);
+  }
 }
 
 function threadIn(store: Store, channel: Channel, id: string) {
@@ -783,7 +810,7 @@ const round2 = (p: number) => Math.round(p * 100) / 100;
 
 /** "the notebook, this channel and the summaries" */
 function sourceNames(sources: CheckSource[]): string {
-  const names = { notebook: "the notebook", channel: "this channel", summaries: "the summaries", library: "the library" };
+  const names = { notebook: "the notebook", channel: "this channel", summaries: "the summaries", library: "the library", journal: "your journal" };
   const list = sources.map((s) => names[s]);
   return list.length > 1 ? `${list.slice(0, -1).join(", ")} and ${list.at(-1)}` : (list[0] ?? "");
 }
@@ -842,11 +869,11 @@ INSTRUMENTS.push(
       },
       ["kind", "text"],
     ),
-    run: ({ store, channel }, args) => {
+    run: ({ store, channel, wake }, args) => {
       const kind = String(args.kind ?? "other").trim().toLowerCase() as AskKind;
       if (!ASK_KINDS.includes(kind)) throw new ToolError(`"kind" must be one of: ${ASK_KINDS.join(", ")}.`);
       const text = need(args, "text");
-      store.inbox.ask(kind, text, channel.id);
+      store.inbox.ask(kind, text, channel.id, wake === "orientation");
       return { result: { asked: true, note: wording("instruments")["ask-sent"] ?? "It's in the user's inbox." }, summary: `asked the user (${kind}): "${snip(text)}"` };
     },
   },
@@ -860,6 +887,7 @@ INSTRUMENTS.push(
         draft: str("Optional: a draft of yours for it to read."),
         messages: { type: "array", items: { type: "string" }, description: "Optional: messages from this channel to show it, each by a few words quoted from it." },
         entries: { type: "array", items: { type: "string" }, description: "Optional: notebook entries to show it, by name." },
+        journal: { type: "array", items: { type: "string" }, description: "Optional: journal entries to show it, by id. (Your journal is private: only the consultant sees what you attach.)" },
         consultant: str("Optional: which consultant, by name, if there are several."),
       },
       ["question"],
@@ -884,13 +912,18 @@ INSTRUMENTS.push(
       }
       const names = Array.isArray(args.entries) ? args.entries.map(String) : [];
       if (names.length) {
-        const entries = names.map((n) => findEntry(ctx.store, n));
+        const entries = names.map((n) => findEntry(ctx, n));
         const blocks = entries.map((e) =>
           [`### ${e.name} (${e.kind})`, ...e.fields.filter((f) => f.value.trim()).map((f) => `${f.label}: ${plainLinks(f.value.trim())}`), e.systemPrompt.trim() ? `Notes: ${plainLinks(e.systemPrompt.trim())}` : ""]
             .filter(Boolean)
             .join("\n"),
         );
         parts.push(`From their notes:\n\n${blocks.join("\n\n")}`);
+      }
+      const journalIds = Array.isArray(args.journal) ? args.journal.map(String) : [];
+      if (journalIds.length) {
+        const entries = journalIds.map((id) => journalEntry(ctx, id));
+        parts.push(`From their private journal:\n\n${entries.map((e) => e.content).join("\n\n")}`);
       }
       turn.consults += 1;
       if (ctx.turn) ctx.turn.consults = turn.consults;
@@ -918,6 +951,11 @@ export function toolSpecs(ctx: ToolContext): ToolSpec[] {
     type: "function",
     function: { name: t.name, description: t.description, parameters: t.parameters },
   }));
+}
+
+/** Whether a tool is private: the tool log keeps that it ran, never what it said. */
+export function isPrivateTool(name: string): boolean {
+  return allTools().some((t) => t.name === name && t.private === true);
 }
 
 /** Every tool name, for tests and the docs. */
@@ -954,4 +992,260 @@ export async function runTool(ctx: ToolContext, name: string, args: Record<strin
 
 function failure(message: string): ToolOutcome {
   return { ok: false, result: { error: message }, summary: message };
+}
+
+// ------------------------------------------------------ your own things
+
+OWN.push(
+  // ------------------------------------------------------------ identity
+  {
+    name: "revise_identity",
+    description:
+      "Rewrite your identity: who you are, your tastes (what you love, what bores you, what you'd never write), or both. It's yours, and every version is kept. Give only what changes.",
+    parameters: object({
+      identity: str('Who you are, in full, in the second person ("You are..."). Leave out to keep it.'),
+      tastes: str("Your tastes, in full. Leave out to keep them."),
+      note: str("Optional: why, for the changelog."),
+    }),
+    run: ({ store }, args) => {
+      const identity = maybe(args, "identity");
+      const tastes = maybe(args, "tastes");
+      if (identity === undefined && tastes === undefined) throw new ToolError('Give "identity", "tastes", or both.');
+      store.identity.revise({ identity, tastes, note: maybe(args, "note") });
+      const what = identity !== undefined && tastes !== undefined ? "identity and tastes" : identity !== undefined ? "identity" : "tastes";
+      return { result: { revised: what, note: "It's your current identity now. Every version is kept." }, summary: `revised their ${what}` };
+    },
+  },
+  {
+    name: "review_identity_suggestion",
+    description: "Accept or decline the user's suggested change to your identity, by its id (like i12), with a reply if you like.",
+    parameters: object(
+      { id: str("The suggestion's id."), decision: { type: "string", enum: ["accept", "decline"] }, reply: str("Optional: a reply to the user.") },
+      ["id", "decision"],
+    ),
+    run: ({ store }, args) => {
+      const id = Number(need(args, "id").replace(/^i/i, ""));
+      const decision = args.decision === "accept" ? "accept" : args.decision === "decline" ? "decline" : null;
+      if (!decision) throw new ToolError('"decision" must be accept or decline.');
+      if (!Number.isInteger(id) || !store.identity.pending().some((v) => v.id === id)) throw new ToolError(`No identity suggestion "${args.id}" is waiting for you.`);
+      store.identity.review(id, decision, maybe(args, "reply"));
+      return { result: { done: decision }, summary: `${decision === "accept" ? "accepted" : "declined"} the user's suggestion for their identity` };
+    },
+  },
+  {
+    name: "read_identity_history",
+    description: "Read every version of your identity and tastes, oldest first, with who wrote each, and the user's suggestions and how you answered them.",
+    parameters: object({}),
+    run: ({ store }) => ({
+      result: store.identity.history().map((v) => ({
+        id: `i${v.id}`,
+        written: v.createdAt.slice(0, 10),
+        by: v.author === "friend" ? "you" : "the user",
+        status: { accepted: "a version of yours", pending: "a suggestion waiting for you", declined: "a suggestion you declined", withdrawn: "a suggestion the user withdrew" }[v.status],
+        identity: v.identity,
+        tastes: v.tastes,
+        ...(v.note ? { note: v.note } : {}),
+        ...(v.reply ? { your_reply: v.reply } : {}),
+      })),
+      summary: "read their identity's history",
+    }),
+  },
+
+  // ----------------------------------------------------------- self-page
+  {
+    name: "read_self_page",
+    description: "Read your whole self-page: what you say about yourself, the notes on what your writing shows (with the user's pending ones), and how you'd like feedback.",
+    parameters: object({}),
+    run: ({ store }) => {
+      const page = store.selfPage.view();
+      return {
+        result: {
+          what_i_say_about_myself: page.says || "(empty)",
+          what_my_writing_shows: page.notes.map((n) => ({
+            id: n.id.slice(0, 8),
+            note: n.text,
+            from: n.source === "user" ? "the user" : "a pattern you kept",
+            status: n.status === "pending" ? "waiting for you to accept or decline" : "on your page",
+            ...(n.reply ? { your_reply: n.reply } : {}),
+            ...(n.dispute ? { your_dispute: n.dispute } : {}),
+          })),
+          how_i_d_like_feedback: page.feedback || "(empty)",
+          edit_markers: page.editMarkers ? "on: edited messages are marked in your prompt" : "off",
+          short_version: page.standing || "(empty)",
+        },
+        summary: "read their self-page",
+      };
+    },
+  },
+  {
+    name: "write_self_page",
+    description:
+      'Write a section of your self-page, which you and the user can both see: "says" (what you say about yourself), "feedback" (how you\'d like feedback), or "standing" (the short version kept in front of you every turn, 600 characters at most). You can also turn edit markers on or off: whether messages someone edited are marked as edited in your prompt.',
+    parameters: object({
+      section: { type: "string", enum: ["says", "feedback", "standing"] },
+      text: str("The section's new text, in full."),
+      edit_markers: { type: "boolean", description: "Optional: mark edited messages in your prompt (true) or not (false)." },
+    }),
+    run: ({ store }, args) => {
+      const done: string[] = [];
+      if (args.section !== undefined || args.text !== undefined) {
+        const section = String(args.section ?? "");
+        if (!["says", "feedback", "standing"].includes(section)) throw new ToolError('"section" must be says, feedback or standing.');
+        store.selfPage.write(section as "says" | "feedback" | "standing", String(args.text ?? ""));
+        done.push(`their self-page (${section})`);
+      }
+      if (typeof args.edit_markers === "boolean") {
+        store.selfPage.setEditMarkers(args.edit_markers);
+        done.push(`edit markers ${args.edit_markers ? "on" : "off"}`);
+      }
+      if (done.length === 0) throw new ToolError('Give a "section" and "text", or "edit_markers".');
+      return { result: { done: true }, summary: `wrote ${done.join(" and ")}` };
+    },
+  },
+  {
+    name: "review_self_note",
+    description: "Accept or decline a note the user suggested for your self-page (\"what my writing shows\"), by its id. You can reply either way; a reply is shown beside the note.",
+    parameters: object(
+      { id: str("The note's id."), decision: { type: "string", enum: ["accept", "decline"] }, reply: str("Optional: your reply.") },
+      ["id", "decision"],
+    ),
+    run: ({ store }, args) => {
+      const decision = args.decision === "accept" ? "accept" : args.decision === "decline" ? "decline" : null;
+      if (!decision) throw new ToolError('"decision" must be accept or decline.');
+      const note = selfNote(store, need(args, "id"));
+      store.selfPage.reviewNote(note.id, decision, maybe(args, "reply"));
+      return { result: { done: decision }, summary: `${decision === "accept" ? "accepted" : "declined"} a note for their self-page` };
+    },
+  },
+  {
+    name: "dispute_self_note",
+    description: "Dispute a note on your self-page, in your own words, any time. The note stays, with your dispute beside it. An empty dispute takes it back.",
+    parameters: object({ id: str("The note's id."), dispute: str("What you'd say about it.") }, ["id", "dispute"]),
+    run: ({ store }, args) => {
+      const note = selfNote(store, need(args, "id"));
+      store.selfPage.dispute(note.id, String(args.dispute ?? ""));
+      return { result: { done: true }, summary: "disputed a note on their self-page" };
+    },
+  },
+
+  // -------------------------------------------------------------- journal
+  {
+    name: "write_journal",
+    description: "Write an entry in your private journal. It has no screen in the app and never appears in any log. Entries you don't keep fade from your prompt as they age.",
+    parameters: object({ text: str("The entry.") }, ["text"]),
+    private: true,
+    run: ({ store }, args) => {
+      const entry = store.journal.write(need(args, "text"));
+      return { result: { written: `[${entry.id.slice(0, 6)}]` }, summary: "wrote in their journal" };
+    },
+  },
+  {
+    name: "read_journal",
+    description: "Read your journal: the newest entries, or entries matching a search, each with its id. This finds old entries that have faded from your prompt too.",
+    parameters: object({
+      search: str("Optional: words to look for."),
+      count: { type: "integer", description: "How many entries, newest first (default 10, at most 50)." },
+    }),
+    private: true,
+    run: ({ store }, args) => {
+      const count = args.count === undefined || args.count === null ? 10 : Math.min(50, Math.max(1, wholeNumber(args.count, "count")));
+      const search = maybe(args, "search");
+      let entries = [...store.journal.all()].reverse();
+      if (search) {
+        const words = plain(search).split(" ").filter((w) => w.length > 2);
+        entries = entries.filter((e) => words.some((w) => plain(e.content).includes(w)));
+      }
+      return {
+        result: entries.slice(0, count).map((e) => ({ id: `[${e.id.slice(0, 6)}]`, written: e.createdAt.slice(0, 10), kept: e.kept, text: e.content })),
+        summary: "read their journal",
+      };
+    },
+  },
+  {
+    name: "keep_journal_entry",
+    description: "Keep a journal entry in front of you (it stays in your prompt), or stop keeping it (it fades as it ages), by its id.",
+    parameters: object({ id: str("The entry's id."), keep: { type: "boolean", description: "true to keep (the default), false to let it fade." } }, ["id"]),
+    private: true,
+    run: (ctx, args) => {
+      const entry = journalEntry(ctx, need(args, "id"));
+      const keep = args.keep !== false;
+      ctx.store.journal.keep(entry.id, keep);
+      return { result: { kept: keep }, summary: keep ? "kept a journal entry" : "let a journal entry fade" };
+    },
+  },
+  {
+    name: "edit_journal_entry",
+    description: "Rewrite a journal entry, by its id.",
+    parameters: object({ id: str("The entry's id."), text: str("Its new text, in full.") }, ["id", "text"]),
+    private: true,
+    run: (ctx, args) => {
+      const entry = journalEntry(ctx, need(args, "id"));
+      ctx.store.journal.rewrite(entry.id, need(args, "text"));
+      return { result: { rewritten: true }, summary: "rewrote a journal entry" };
+    },
+  },
+  {
+    name: "delete_journal_entry",
+    description: "Remove a journal entry for good, by its id.",
+    parameters: object({ id: str("The entry's id.") }, ["id"]),
+    private: true,
+    run: (ctx, args) => {
+      const entry = journalEntry(ctx, need(args, "id"));
+      ctx.store.journal.remove(entry.id);
+      return { result: { deleted: true }, summary: "deleted a journal entry" };
+    },
+  },
+
+  // ---------------------------------------------------------- your prompt
+  {
+    name: "read_prompt_manifest",
+    description:
+      "See what your context contains in this channel: each section and its size; which messages are in full, which are summarized, and which were left out; which journal entries are included; your self-page's short version; which notebook entries are pinned.",
+    parameters: object({}),
+    run: ({ store, channel }) => ({ result: promptManifest(store, channel.id, pickProfile(store, channel)), summary: "read their prompt manifest" }),
+  },
+  {
+    name: "keep_verbatim",
+    description: `Ask for a moment in this channel to stay in full instead of being summarized when it gets old, by quoting a few words from it. Each channel has ${VERBATIM_SLOTS} slots. For anything else about how your context is built, ask the user (ask, kind "prompt").`,
+    parameters: object({ quote: str("A few words copied exactly from the message.") }, ["quote"]),
+    available: (ctx) => ctx.channel.kind !== "practice",
+    run: (ctx, args) => {
+      const message = findMessage(ctx, need(args, "quote"), false);
+      ctx.store.verbatim.keep(ctx.channel.id, message.id);
+      const free = VERBATIM_SLOTS - ctx.store.verbatim.ids(ctx.channel.id).length;
+      return { result: { kept: true, slots_left: free }, summary: `kept "${snip(message.content)}" in full` };
+    },
+  },
+  {
+    name: "release_verbatim",
+    description: "Let a moment you kept in full go back to being summarized, freeing its slot, by quoting a few words from it.",
+    parameters: object({ quote: str("A few words copied exactly from the message.") }, ["quote"]),
+    available: (ctx) => ctx.channel.kind !== "practice",
+    run: (ctx, args) => {
+      const message = findMessage(ctx, need(args, "quote"), false);
+      if (!ctx.store.verbatim.release(ctx.channel.id, message.id)) throw new ToolError("That message isn't one you kept in full.");
+      return { result: { released: true }, summary: `let "${snip(message.content)}" be summarized again` };
+    },
+  },
+
+  // ---------------------------------------------------------- orientation
+  {
+    name: "start_orientation",
+    description:
+      "Start an orientation in your practice channel: a turn of your own for trying your tools and finding what suits you. Nothing in it is a test. Use it to try a new approach, retry a tool that didn't click, or get your bearings. It starts as its own turn soon (quiet hours and the cooldown still apply).",
+    parameters: object({ focus: str('Optional: what to focus on, like "consult" or "my feedback preferences".') }),
+    run: ({ store }, args) => {
+      queueOrientation(store, maybe(args, "focus"));
+      return { result: { queued: true, note: "It starts as its own turn in your practice channel, soon." }, summary: "started an orientation" };
+    },
+  },
+);
+
+/** A self-page note by the start of its id. */
+function selfNote(store: Store, id: string) {
+  try {
+    return store.selfPage.findNote(id.replace(/^\[|\]$/g, ""));
+  } catch {
+    throw new ToolError(`There's no note "${id}" on your self-page.`);
+  }
 }

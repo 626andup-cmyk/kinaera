@@ -7,7 +7,8 @@
  *
  *   1. **Search.** Full-text search (FTS5, as the reference library does)
  *      over the sources they chose: by default the notebook, this channel's
- *      messages and the summaries; the library if they ask. The best
+ *      messages and the summaries; the library or their journal if they
+ *      ask. The best
  *      passages from each source are taken in turn, up to `CHECK_LIMIT`
  *      characters in all. Entries hidden from your friend are never
  *      searched: the notebook is read as they see it.
@@ -46,7 +47,7 @@ const PASSAGE_LIMIT = 6_000;
 const PER_SOURCE = 8;
 
 /** The places a check can search. */
-export const CHECK_SOURCES = ["notebook", "channel", "summaries", "library"] as const;
+export const CHECK_SOURCES = ["notebook", "channel", "summaries", "library", "journal"] as const;
 export type CheckSource = (typeof CHECK_SOURCES)[number];
 
 /** Searched when your friend doesn't say. */
@@ -96,8 +97,18 @@ const cut = (text: string) => (text.length > PASSAGE_LIMIT ? `${text.slice(0, PA
 
 /** Everything a source could offer, before searching. */
 function candidates(store: Store, channel: Channel, source: Exclude<CheckSource, "library">): Evidence[] {
+  if (source === "journal") {
+    // Private: found and read like the rest, but never logged.
+    return store.journal.all().map((e) => ({
+      source,
+      where: `your journal [${e.id.slice(0, 6)}], ${e.createdAt.slice(0, 10)}${e.kept ? " (kept)" : ""}`,
+      text: cut(e.content),
+      private: true,
+    }));
+  }
   if (source === "notebook") {
-    return store.notebook.listEntries("friend").map((entry) => ({
+    // Practice notes only from the practice channel.
+    return store.notebook.listEntries("friend", channel.kind === "practice").map((entry) => ({
       source,
       where: `notebook: ${entry.name} (${entry.kind})`,
       text: cut(

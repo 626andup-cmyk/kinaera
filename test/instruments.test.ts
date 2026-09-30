@@ -244,7 +244,7 @@ describe("ask and the inbox", () => {
     const path = join(dir.path, "stage2.db");
     const old = new Database(path);
     old.exec("PRAGMA foreign_keys = ON");
-    for (const step of MIGRATIONS.slice(0, 2)) typeof step === "string" ? old.exec(step) : step(old);
+    for (const step of MIGRATIONS.slice(0, 2)) typeof step === "string" ? old.exec(step) : typeof step === "function" ? step(old) : old.exec(step.rebuild);
     old.exec("PRAGMA user_version = 2");
     old.exec(`INSERT INTO proposals (id, kind, target_id, target_name, reason, status, created_at) VALUES ('p1', 'delete_channel', 'c', 'old', 'Done.', 'pending', 'then')`);
     old.close();

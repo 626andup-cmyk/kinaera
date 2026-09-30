@@ -145,6 +145,8 @@ export class Summarizer {
     } catch {
       return; // deleted in the meantime
     }
+    // The practice channel is never summarized: nothing in it feeds anything else.
+    if (channel.kind === "practice") return;
     const messages = store.summaries.withSeq(channelId, store.getMessages(channelId));
     if (messages.length === 0) return;
     const scenes = splitScenes(messages, channel.kind);

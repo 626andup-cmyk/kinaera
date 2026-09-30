@@ -657,6 +657,87 @@
       </div>
     </dialog>
 
+    <!--
+      The friend's page (js/friend-self.js): who they are and its changelog,
+      their self-page, their journal (counts only: it's private), and an
+      invitation to an orientation.
+    -->
+    <dialog id="self-dialog" class="dialog surface self-page">
+      <div class="friend-dialog-head">
+        <div class="avatar friend-avatar" id="self-avatar" aria-hidden="true"></div>
+        <h2 class="dialog-title" id="self-title">Friend</h2>
+      </div>
+      <div class="memory-buttons">
+        <button type="button" class="button" id="self-settings">Settings…</button>
+        <button type="button" class="button" id="open-interventions">What you've changed</button>
+        <button type="button" class="button" id="friend-check-log">Check log</button>
+      </div>
+
+      <section class="self-section">
+        <h3 class="section-title">Who they are</h3>
+        <p class="hint">Theirs to write. Your changes are suggestions they accept or decline.</p>
+        <div class="self-text" id="self-identity"></div>
+        <h4 class="self-subtitle">Their tastes</h4>
+        <div class="self-text" id="self-tastes"></div>
+        <div id="self-identity-waiting"></div>
+        <details class="self-suggest" id="self-suggest">
+          <summary>Suggest a change</summary>
+          <label for="self-suggest-identity">Who they are</label>
+          <textarea id="self-suggest-identity" rows="5"></textarea>
+          <label for="self-suggest-tastes">Their tastes</label>
+          <textarea id="self-suggest-tastes" rows="3"></textarea>
+          <label for="self-suggest-note">Why (optional)</label>
+          <input id="self-suggest-note" autocomplete="off" />
+          <div class="dialog-buttons">
+            <span class="spacer"></span>
+            <button type="button" class="button button-primary" id="self-suggest-send">Suggest</button>
+          </div>
+        </details>
+        <details class="self-changelog">
+          <summary>Changelog</summary>
+          <ol id="self-changelog" class="wake-log-list"></ol>
+        </details>
+      </section>
+
+      <section class="self-section">
+        <h3 class="section-title">Their self-page</h3>
+        <h4 class="self-subtitle">What they say about themselves</h4>
+        <div class="self-text" id="self-says"></div>
+        <h4 class="self-subtitle">What their writing shows</h4>
+        <ul id="self-notes" class="self-notes"></ul>
+        <details class="self-suggest">
+          <summary>Add a note</summary>
+          <p class="hint">Something you've noticed in their writing. It's a suggestion: they can accept it, decline it, or reply.</p>
+          <textarea id="self-note-text" rows="3" aria-label="Your note"></textarea>
+          <div class="dialog-buttons">
+            <span class="spacer"></span>
+            <button type="button" class="button button-primary" id="self-note-send">Suggest</button>
+          </div>
+        </details>
+        <h4 class="self-subtitle">How they'd like feedback</h4>
+        <div class="self-text" id="self-feedback"></div>
+      </section>
+
+      <section class="self-section">
+        <h3 class="section-title">Their journal</h3>
+        <p class="hint" id="self-journal"></p>
+      </section>
+
+      <section class="self-section">
+        <h3 class="section-title">Orientation</h3>
+        <p class="hint" id="self-orientation"></p>
+        <div class="memory-buttons">
+          <button type="button" class="button" id="self-invite">Invite to an orientation</button>
+        </div>
+      </section>
+
+      <p class="form-error" role="alert" hidden></p>
+      <div class="dialog-buttons">
+        <span class="spacer"></span>
+        <button type="button" class="button button-primary" data-close>Done</button>
+      </div>
+    </dialog>
+
     <!-- The open friend: who they are, how they look, how they write. -->
     <dialog id="friend-dialog" class="dialog surface">
       <form id="friend-form" method="dialog">
@@ -668,11 +749,6 @@
           Everything they remember is theirs alone: their notebook, channels and settings. Other friends never
           see it.
         </p>
-
-        <div class="memory-buttons">
-          <button type="button" class="button" id="open-interventions">What you've changed</button>
-          <button type="button" class="button" id="friend-check-log">Check log</button>
-        </div>
 
         <label for="friend-name-input">Name</label>
         <input id="friend-name-input" name="friendName" autocomplete="off" />
@@ -692,13 +768,17 @@
         </div>
 
         <label for="setting-friend">Who your friend is</label>
-        <p class="hint">Their personality and taste as a writer. Used in every channel.</p>
+        <p class="hint">
+          Their identity is theirs: a change you save here is a suggestion, which they accept or decline on their
+          next turn (see their page).
+        </p>
         <textarea id="setting-friend" name="friendPrompt" rows="5"></textarea>
         <div class="memory-buttons">
           <button type="button" class="button" id="surprise-friend">🎲 Surprise me</button>
         </div>
         <p class="hint" id="surprise-result" role="status">
-          Reroll who they are from a few random ingredients. Nothing changes until you press Save.
+          Reroll who they are from a few random ingredients. Nothing changes until you press Save, and then it's a
+          suggestion.
         </p>
 
         <label class="check-option">

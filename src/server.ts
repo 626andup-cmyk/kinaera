@@ -129,6 +129,7 @@ import { describeSeeds, randomFriend, rollSeeds } from "./rng.ts";
 import { keepAwake, Presence, TermuxNotifier, type Notifier } from "./notify.ts";
 import { DEFAULT_THEME, ThemeLibrary } from "./themes.ts";
 import { ENTRY_TEMPLATES } from "./notebook.ts";
+import { invited, inviteToOrientation, noteNewProfiles, pendingOrientation, Rhythms } from "./orientation.ts";
 import type { CastMember, Channel, Message, Settings } from "./types.ts";
 import { PermissionError } from "./errors.ts";
 import {
@@ -186,6 +187,8 @@ export interface App {
   wakeups: Wakeups;
   /** A timer that gives your friend free moments (src/heartbeat.ts). */
   heartbeat: Heartbeat;
+  /** Orientation and the weekly look back (src/orientation.ts). */
+  rhythms: Rhythms;
   /** Whether the app is on screen, as it last said (for notifications). */
   presence: Presence;
   notifier: Notifier;
@@ -282,6 +285,7 @@ export function createApp(config: Config): App {
   friend.decider = decider;
   const wakeups = new Wakeups(store, friend, Boolean(config.apiKey));
   const heartbeat = new Heartbeat(store, wakeups);
+  const rhythms = new Rhythms(store, wakeups);
   const presence = new Presence();
   const notifier = config.notifier ?? new TermuxNotifier(`http://127.0.0.1:${config.port}`);
   // A wake-up (or heartbeat) wrote to you while the app isn't on screen: a
@@ -339,6 +343,41 @@ export function createApp(config: Config): App {
 
   function channelViews(): ChannelView[] {
     return store.listChannels().map(channelView);
+  }
+
+  /** The practice channel, with the sample notes pinned to it. */
+  function practiceView(): ChannelView | null {
+    const channel = store.practiceChannel();
+    return channel ? channelView(channel) : null;
+  }
+
+  /** Your suggestions for their identity and self-page that your friend hasn't answered yet. */
+  function waitingOnFriend() {
+    return {
+      identity: store.identity.pending(),
+      selfNotes: store.selfPage.pendingNotes().filter((n) => n.source === "user"),
+    };
+  }
+
+  /** Everything on the friend page (the journal only as counts: it's private). */
+  function friendPage() {
+    return {
+      identity: store.identity.current(),
+      history: store.identity.history(),
+      selfPage: store.selfPage.view(),
+      journal: store.journal.counts(),
+      orientation: {
+        invited: invited(store),
+        pending: pendingOrientation(store) !== null,
+        lastInvitation: store.appState.get("orientation.invite-result"),
+      },
+      waiting: waitingOnFriend(),
+    };
+  }
+
+  /** You suggested something for your friend to answer: that's a wake-up, if the rules allow. */
+  function suggested(): void {
+    if (autoWake) void wakeups.event("review");
   }
 
   function sceneBreakResult(result: { sceneBreak: Message; channel: Channel }) {
@@ -414,10 +453,14 @@ export function createApp(config: Config): App {
         json({
           settings: store.getSettings(),
           channels: channelViews(),
+          // Your friend's own practice channel, shown apart (src/orientation.ts).
+          practice: practiceView(),
           categories: store.listCategories(),
           profiles: store.profiles.list(),
           roulettes: store.profiles.listRoulettes(),
           inbox: store.inbox.open(),
+          // Your suggestions still waiting for your friend.
+          waiting: waitingOnFriend(),
           busyChannels: friend.busyChannels(),
           appVersion: version,
           emojis: store.reactions.listEmojis(),
@@ -545,6 +588,17 @@ export function createApp(config: Config): App {
       handler: async (request) => {
         const update = validateSettings(await readJson(request));
         ensureTheme(update.appTheme);
+        // Their identity is theirs (src/identity.ts): a change you make to it
+        // is a suggestion they accept or decline, never saved over it.
+        let suggestion = null;
+        if (update.friendPrompt !== undefined) {
+          const current = store.identity.current();
+          if (update.friendPrompt.trim() !== (current?.identity ?? "")) {
+            suggestion = store.identity.suggest({ identity: update.friendPrompt });
+            store.interventions.add({ kind: "settings", summary: "The user suggested a change to your identity." });
+          }
+          delete update.friendPrompt;
+        }
         for (const assignment of [update.rpAssignment, update.oocAssignment, update.summaryAssignment, update.decisionFallback]) {
           if (assignment) store.profiles.checkAssignment(assignment);
         }
@@ -558,7 +612,8 @@ export function createApp(config: Config): App {
           heartbeat.reset();
           if (update.heartbeatHours > 0) keepAwake();
         }
-        return json({ settings });
+        if (suggestion) suggested();
+        return json({ settings, suggestion });
       },
     },
     {
@@ -846,7 +901,8 @@ export function createApp(config: Config): App {
         // roulette would pick first.
         const profileId = new URL(request.url).searchParams.get("profile");
         const profile = profileId ? store.profiles.get(profileId) : pickProfile(store, store.getChannel(id!), 0);
-        return json({ messages: promptForChannel(store, id!, { profile }), profile });
+        // The preview never shows journal text (it's private to your friend).
+        return json({ messages: promptForChannel(store, id!, { profile, preview: true }), profile });
       },
     },
 
@@ -991,6 +1047,71 @@ export function createApp(config: Config): App {
       },
     },
 
+    // ------------------------------------------------------- friend page
+    {
+      method: "GET",
+      pattern: "/api/friend-page",
+      handler: () => json(friendPage()),
+    },
+    {
+      // Suggest a change to their identity or tastes: they accept or decline it.
+      method: "POST",
+      pattern: "/api/identity/suggestions",
+      handler: async (request) => {
+        const body = await readObject(request);
+        const change: { identity?: string; tastes?: string; note?: string } = {};
+        for (const key of ["identity", "tastes", "note"] as const) {
+          if (body[key] === undefined) continue;
+          if (typeof body[key] !== "string") throw new HttpError(400, `"${key}" must be text.`);
+          change[key] = body[key] as string;
+        }
+        store.identity.suggest(change);
+        store.interventions.add({ kind: "settings", summary: "The user suggested a change to your identity." });
+        suggested();
+        return json(friendPage());
+      },
+    },
+    {
+      method: "POST",
+      pattern: "/api/identity/suggestions/:id/withdraw",
+      handler: (_request, { id }) => {
+        store.identity.withdraw(Number(id));
+        return json(friendPage());
+      },
+    },
+    {
+      // Add a note to "what my writing shows": it arrives as a suggestion.
+      method: "POST",
+      pattern: "/api/self-page/notes",
+      handler: async (request) => {
+        const body = await readObject(request);
+        if (typeof body.text !== "string") throw new HttpError(400, '"text" must be text.');
+        const ids = body.messageIds ?? [];
+        if (!Array.isArray(ids) || !ids.every((m) => typeof m === "string")) throw new HttpError(400, '"messageIds" must be a list of message ids.');
+        store.selfPage.suggestNote(body.text, ids as string[]);
+        store.interventions.add({ kind: "settings", summary: "The user suggested a note for your self-page." });
+        suggested();
+        return json(friendPage());
+      },
+    },
+    {
+      method: "POST",
+      pattern: "/api/self-page/notes/:id/withdraw",
+      handler: (_request, { id }) => {
+        store.selfPage.withdrawNote(id!);
+        return json(friendPage());
+      },
+    },
+    {
+      // Invite them to an orientation: they're told on their next turn.
+      method: "POST",
+      pattern: "/api/orientation/invite",
+      handler: () => {
+        inviteToOrientation(store);
+        return json(friendPage());
+      },
+    },
+
     // ------------------------------------------------------------- inbox
     {
       method: "GET",
@@ -1060,8 +1181,14 @@ export function createApp(config: Config): App {
     {
       method: "PATCH",
       pattern: "/api/roulettes/:id",
-      handler: async (request, { id }) =>
-        json({ roulette: store.profiles.updateRoulette(id!, await readObject(request)) }),
+      handler: async (request, { id }) => {
+        const before = new Set(store.profiles.getRoulette(id!).entries.map((e) => e.profileId));
+        const roulette = store.profiles.updateRoulette(id!, await readObject(request));
+        // A profile new to the roulette: your friend is offered an orientation.
+        const added = roulette.entries.filter((e) => !before.has(e.profileId)).map((e) => store.profiles.get(e.profileId).name);
+        noteNewProfiles(store, added);
+        return json({ roulette });
+      },
     },
     {
       method: "DELETE",
@@ -1268,7 +1395,7 @@ export function createApp(config: Config): App {
     }
   }
 
-  return { fetch, store, friend, themes, summarizer, decider, wakeups, heartbeat, presence, notifier };
+  return { fetch, store, friend, themes, summarizer, decider, wakeups, heartbeat, rhythms, presence, notifier };
 }
 
 /**

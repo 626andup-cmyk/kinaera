@@ -7,8 +7,8 @@
  * the randomness comes from here: a temperament, a way of talking, two
  * interests, a quirk, and what they love in a story, each picked at random
  * from lists below (`rollSeeds`). The model (the profile that writes OOC)
- * turns them into a name and a "who your friend is" prompt, written the way
- * the default one is. Nothing is saved until you press Save in Settings;
+ * turns them into a name, a "who your friend is" prompt (written the way
+ * the default one is), and their tastes. Nothing is saved until you press Save;
  * roll again as often as you like.
  */
 
@@ -69,7 +69,7 @@ export function describeSeeds(seeds: FriendSeeds): string {
 }
 
 /** Ask the model to turn the seeds into a friend: a name, and who they are. */
-export async function randomFriend(api: ApiOptions, profile: Profile, seeds: FriendSeeds): Promise<{ name: string; prompt: string }> {
+export async function randomFriend(api: ApiOptions, profile: Profile, seeds: FriendSeeds): Promise<{ name: string; prompt: string; tastes: string }> {
   const request = profileRequest(profile);
   const response = await createChatCompletion(api, {
     ...request,
@@ -86,15 +86,18 @@ export async function randomFriend(api: ApiOptions, profile: Profile, seeds: Fri
           `- Into: ${seeds.interests.join(", ")}`,
           `- Quirk: ${seeds.quirk}`,
           `- Loves writing: ${seeds.loves.join(", ")}`,
-          'Reply with JSON only: {"name": "a first name", "prompt": "..."}. The prompt describes them in the second person ("You are ..."), in 80 to 150 words: who they are, how they talk, their taste as a writer, and what they\'re like as a friend.',
+          'Reply with JSON only: {"name": "a first name", "prompt": "...", "tastes": "..."}. The prompt describes them in the second person ("You are ..."), in 80 to 150 words: who they are, how they talk, their taste as a writer, and what they\'re like as a friend.',
+          'The tastes are theirs as a writer, in the second person, in 40 to 90 words: what they love, what bores them, and what they\'d never write.',
         ].join("\n"),
       },
       { role: "user", content: "Surprise me." },
     ],
   });
-  const json = extractJson(response.content) as { name?: unknown; prompt?: unknown };
+  const json = extractJson(response.content) as { name?: unknown; prompt?: unknown; tastes?: unknown };
   const name = typeof json?.name === "string" ? json.name.trim().slice(0, 40) : "";
   const prompt = typeof json?.prompt === "string" ? json.prompt.trim().slice(0, 4000) : "";
   if (!name || !prompt) throw new Error("The model's answer didn't have a name and a description. Try again.");
-  return { name, prompt };
+  // Tastes are welcome but not required: they can find their own later.
+  const tastes = typeof json?.tastes === "string" ? json.tastes.trim().slice(0, 4000) : "";
+  return { name, prompt, tastes };
 }

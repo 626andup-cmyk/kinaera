@@ -153,6 +153,7 @@ interface FolderRow {
   editing: Editing;
   position: number;
   created_at: string;
+  practice: number;
 }
 
 function toEntry(row: EntryRow): NotebookEntry {
@@ -181,6 +182,7 @@ function toFolder(row: FolderRow): NotebookFolder {
     editing: row.editing,
     position: row.position,
     createdAt: row.created_at,
+    practice: row.practice === 1,
   };
 }
 
@@ -201,10 +203,10 @@ export class Notebook {
 
   // ------------------------------------------------------------ folders
 
-  /** Every folder the actor can see, in order. */
-  listFolders(actor: Author): NotebookFolder[] {
+  /** Every folder the actor can see, in order (the Practice folder only when asked for). */
+  listFolders(actor: Author, practice = false): NotebookFolder[] {
     const rows = this.db.query("SELECT * FROM notebook_folders ORDER BY position").all() as FolderRow[];
-    return rows.map(toFolder).filter((folder) => canSee(actor, folderSettings(folder)));
+    return rows.map(toFolder).filter((folder) => canSee(actor, folderSettings(folder)) && (practice || !folder.practice));
   }
 
   /** One folder the actor can see. */
@@ -266,14 +268,39 @@ export class Notebook {
 
   // ------------------------------------------------------------ entries
 
-  /** Every entry the actor can see, by name, with what they may do with each. */
-  listEntries(actor: Author): EntryView[] {
+  /**
+   * Every entry the actor can see, by name, with what they may do with each.
+   *
+   * The Practice folder's entries (orientation's sample notes) are left
+   * out, unless `practice` is set: they're in the practice
+   * channel (and shown with it in the app).
+   */
+  listEntries(actor: Author, practice = false): EntryView[] {
     const rows = this.db.query("SELECT * FROM notebook_entries ORDER BY name COLLATE NOCASE").all() as EntryRow[];
     const folders = this.folderMap();
     return rows
       .map(toEntry)
       .filter((entry) => canSee(actor, this.settingsOf(entry, folders)))
+      .filter((entry) => practice || !this.isPractice(entry, folders))
       .map((entry) => this.view(actor, entry, folders));
+  }
+
+  /** Whether an entry is in the Practice folder. */
+  isPractice(entry: NotebookEntry, folders = this.folderMap()): boolean {
+    return entry.folderId !== null && folders.get(entry.folderId)?.practice === true;
+  }
+
+  /** The Practice folder, if there is one. */
+  practiceFolder(): NotebookFolder | null {
+    const row = this.db.query("SELECT * FROM notebook_folders WHERE practice = 1 LIMIT 1").get() as FolderRow | null;
+    return row ? toFolder(row) : null;
+  }
+
+  /** Make the Practice folder: your friend's, visible to you, for orientation's sample notes. */
+  createPracticeFolder(): NotebookFolder {
+    const folder = this.createFolder("friend", { name: "Practice", editing: "open" });
+    this.db.query("UPDATE notebook_folders SET practice = 1 WHERE id = $id").run({ id: folder.id });
+    return this.getFolder("friend", folder.id);
   }
 
   /** One entry the actor can see. Hidden or missing entries are `NotFoundError`. */
@@ -491,9 +518,16 @@ export class Notebook {
     });
   }
 
-  /** Pin an entry to a channel, at the end. Anyone who can see it can pin it. */
+  /**
+   * Pin an entry to a channel, at the end. Anyone who can see it can pin it.
+   * Practice notes are pinned only to the practice channel.
+   */
   pin(actor: Author, channelId: string, entryId: string): void {
-    this.getEntry(actor, entryId); // must exist and be visible
+    const entry = this.getEntry(actor, entryId); // must exist and be visible
+    const channel = this.db.query("SELECT kind FROM channels WHERE id = $channelId").get({ channelId }) as { kind: string } | null;
+    if (this.isPractice(entry) && channel?.kind !== "practice") {
+      throw new ValidationError(`${entry.name} is a practice note: it can only be pinned to the practice channel.`);
+    }
     const { next } = this.db
       .query("SELECT COALESCE(MAX(position) + 1, 0) AS next FROM channel_cast WHERE channel_id = $channelId")
       .get({ channelId }) as { next: number };
@@ -532,7 +566,10 @@ export class Notebook {
       .filter((p): p is PromptEntry => p !== null);
 
     const seen = new Set(pinned.map((p) => p.entry.id));
-    const byName = new Map(this.allEntries().map((e) => [e.name.toLowerCase(), e]));
+    // Links never reach into the Practice folder from outside it.
+    const channel = this.db.query("SELECT kind FROM channels WHERE id = $channelId").get({ channelId }) as { kind: string } | null;
+    const linkable = this.allEntries().filter((e) => channel?.kind === "practice" || !this.isPractice(e, folders));
+    const byName = new Map(linkable.map((e) => [e.name.toLowerCase(), e]));
     const linked: PromptEntry[] = [];
     for (const { entry } of pinned) {
       for (const name of linkedNames(entry)) {
@@ -569,7 +606,7 @@ export class Notebook {
   friendOverview(): PromptEntry[] {
     const folders = this.folderMap();
     return this.allEntries()
-      .filter((entry) => canSee("friend", this.settingsOf(entry, folders)))
+      .filter((entry) => canSee("friend", this.settingsOf(entry, folders)) && !this.isPractice(entry, folders))
       .map((entry) => ({ entry, hiddenFromUser: !canSee("user", this.settingsOf(entry, folders)) }));
   }
 
@@ -579,7 +616,8 @@ export class Notebook {
    * entry is visible.)
    */
   postableCharacters(): NotebookEntry[] {
-    return this.allEntries().filter(canHavePrefix);
+    const folders = this.folderMap();
+    return this.allEntries().filter((e) => canHavePrefix(e) && !this.isPractice(e, folders));
   }
 
   // ------------------------------------------------------------ helpers

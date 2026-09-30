@@ -17,6 +17,8 @@ export async function loadState() {
   const data = await api("GET", "/api/state");
   state.settings = data.settings;
   state.channels = data.channels;
+  state.practice = data.practice ?? null;
+  state.waiting = data.waiting ?? state.waiting;
   state.profiles = data.profiles;
   state.roulettes = data.roulettes;
   state.inbox = data.inbox ?? [];
@@ -99,6 +101,8 @@ export async function checkLive() {
   state.revision = data.revision;
   state.activity = data.activity ?? {};
   state.channels = data.channels;
+  state.practice = data.practice ?? null;
+  state.waiting = data.waiting ?? state.waiting;
   state.categories = data.categories ?? state.categories;
   state.inbox = data.inbox ?? [];
   state.settings = data.settings;

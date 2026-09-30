@@ -27,6 +27,7 @@
  *   settings.js     settings, profiles, roulettes, logs
  *   themes.js       themes and appearance
  *   friend-page.js  friends, servers and the friend menu
+ *   friend-self.js  the friend's page: identity, self-page, orientation
  */
 
 import {
@@ -55,6 +56,7 @@ import { newComment, openThread, resolveThread, sendComment, updateCommentButton
 import { autoGrow, openAttach, renderAttachList } from "./composer.js";
 import { $, els, hideError, readLocal, showError, state, writeLocal } from "./core.js";
 import { FRIEND_KEY, loadHub, pickFriend, switchFriend } from "./friend-page.js";
+import "./friend-self.js";
 import { copyCheckLog, openCheckLog, openInterventions } from "./history.js";
 import { openInbox } from "./inbox.js";
 import {

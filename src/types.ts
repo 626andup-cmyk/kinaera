@@ -25,8 +25,11 @@ export type Author = "user" | "friend";
  *   friend writes their characters (and shared ones), you write yours.
  * - `"ooc"`: out of character. Your friend talks to you as themselves, like
  *   a friend, and can see which storylines exist on the server.
+ * - `"practice"`: your friend's own channel for trying things out
+ *   (orientation). You can see it, but nothing in it feeds anything else:
+ *   no summaries, and it's left out of every other channel's prompt.
  */
-export type ChannelKind = "rp" | "ooc";
+export type ChannelKind = "rp" | "ooc" | "practice";
 
 /**
  * How an RP channel is written and shown (see "Channel modes" in DESIGN.md).
@@ -96,6 +99,11 @@ export interface NotebookFolder {
   editing: Editing;
   position: number;
   createdAt: string;
+  /**
+   * The Practice folder (orientation's sample notes): its entries are left
+   * out of everything your friend sees except the practice channel.
+   */
+  practice: boolean;
 }
 
 /** One notebook entry: a character or a piece of lore. */

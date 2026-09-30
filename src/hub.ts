@@ -146,11 +146,13 @@ export function createHub(config: Config, makeApp: (config: Config) => App = cre
   function startApp(app: App): void {
     app.summarizer.scheduleAll(15_000);
     app.heartbeat.start();
+    app.rhythms.start();
     if (app.store.getSettings().heartbeatHours > 0) keepAwake();
   }
 
   function stopApp(app: App): void {
     app.heartbeat.stop();
+    app.rhythms.stop();
     app.summarizer.stop();
     app.store.close();
   }
@@ -213,6 +215,11 @@ export function createHub(config: Config, makeApp: (config: Config) => App = cre
       Object.entries(source.store.getSettings()).filter(([key]) => !FRIEND_KEYS.includes(key as keyof Settings)),
     );
     app.store.updateSettings({ ...(preferences as Partial<Settings>), ...identity });
+    // Who they were made as is the first version of their identity, which
+    // is theirs from now on (src/identity.ts). Their first turn is the
+    // orientation their store queued (src/orientation.ts).
+    app.store.identity.begin(identity.friendPrompt ?? app.store.getSettings().friendPrompt, typeof input.tastes === "string" ? input.tastes : "");
+    if (started) void app.rhythms.tick();
     registry.friends.push(friend);
     return id;
   }
