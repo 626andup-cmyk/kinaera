@@ -64,12 +64,12 @@ const toVersion = (r: Row): IdentityVersion => ({
   resolvedAt: r.resolved_at,
 });
 
-/** Longest identity or tastes, in characters. */
-export const IDENTITY_LIMIT = 8000;
+/** Longest identity or tastes, in characters (the same as the settings allowed before identities had versions). */
+export const IDENTITY_LIMIT = 100_000;
 
-function text(value: unknown, field: string): string {
+function text(value: unknown, field: string, limit = IDENTITY_LIMIT): string {
   if (typeof value !== "string") throw new ValidationError(`${field} must be text.`);
-  if (value.length > IDENTITY_LIMIT) throw new ValidationError(`${field} is too long (${IDENTITY_LIMIT} characters at most).`);
+  if (value.length > limit) throw new ValidationError(`${field} is too long (${IDENTITY_LIMIT} characters at most).`);
   return value.trim();
 }
 
@@ -99,13 +99,16 @@ export class Identity {
   }
 
   /**
-   * Where it starts: the identity your friend was made with. Replaces
-   * anything there (only used when they're made).
+   * Where it starts: the identity your friend was made with (or already
+   * had, before identities had versions). Replaces anything there (only
+   * used when they're made, or first opened by this version). What's
+   * already saved is kept whatever its length: refusing it would stop the
+   * app from starting.
    */
   begin(identity: string, tastes: string): IdentityVersion {
     this.db.transaction(() => {
       this.db.query("DELETE FROM identity_versions").run();
-      this.insert({ identity: text(identity, "identity"), tastes: text(tastes, "tastes"), author: "user", note: "Who they were made as.", status: "accepted" });
+      this.insert({ identity: text(identity, "identity", Infinity), tastes: text(tastes, "tastes", Infinity), author: "user", note: "Who they were made as.", status: "accepted" });
     })();
     this.mirror(identity.trim());
     return this.current()!;

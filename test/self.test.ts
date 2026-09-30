@@ -60,6 +60,17 @@ const practice = () => app.store.practiceChannel()!;
 // ------------------------------------------------------------- identity
 
 describe("identity", () => {
+  test("a friend from before identities had versions keeps theirs, however long", () => {
+    // What an older version left: a long identity in settings, no versions.
+    const long = "You are Arlo. ".repeat(2000); // 28,000 characters
+    app.store.updateSettings({ friendPrompt: long });
+    app.store.db.exec("DELETE FROM identity_versions");
+    app.store.close();
+    app = createApp(testConfig(dir.path, fake.baseUrl));
+    expect(app.store.identity.current()!.identity).toBe(long.trim());
+    expect(app.store.identity.current()!.tastes).toBe("");
+  });
+
   test("a new friend starts with who they were made as, and their tastes", () => {
     const [first] = app.store.identity.history();
     expect(first).toMatchObject({ author: "user", status: "accepted" });
