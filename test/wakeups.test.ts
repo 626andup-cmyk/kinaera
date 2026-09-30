@@ -188,16 +188,25 @@ describe("the rules", () => {
     expect(result.detail).toContain("quiet hours");
   });
 
-  test("never twice without you writing, and a cooldown", async () => {
+  test("one double text, never a third without you writing, and a cooldown", async () => {
     youWrote(6);
     fake.replies.push({ content: "Welcome back" });
     expect((await wake()).outcome).toBe("posted");
 
-    // Hours later, still no reply from you: they wait.
+    // Hours later, still no reply from you: one follow-up is fine…
+    now = new Date(now.getTime() + 5 * HOUR);
+    fake.replies.push({ content: "you around?" });
+    expect((await wake()).outcome).toBe("posted");
+
+    // …but not a third.
     now = new Date(now.getTime() + 5 * HOUR);
     let result = await wake();
     expect(result.outcome).toBeNull();
-    expect(result.detail).toContain("waiting for you");
+    expect(result.detail).toContain("twice, and is waiting for you");
+
+    // Writing in their practice channel (an orientation) messages no one: it doesn't count.
+    app.store.wakeLog.add({ at: now.toISOString(), reason: "orientation", outcome: "posted", channelId: ooc.id, detail: "" });
+    expect(app.store.wakeLog.postedSince(null)).toBe(2);
 
     // You write, then leave; coming back soon after is within the cooldown.
     youWrote(0.5);

@@ -4,7 +4,7 @@
  *
  * Every `heartbeatHours` (each gap varies by ±20%, so it never feels like
  * clockwork), the server checks in on its own. If the hard rules pass
- * (chattiness, quiet hours, the cooldown, no double texts, not
+ * (chattiness, quiet hours, the cooldown, at most one double text, not
  * mid-conversation: see src/wakeups.ts), your friend gets a turn of their
  * own ("heartbeat"). What they do with it is up to them: text you, act with
  * their tools, or nothing at all. Most beats stop at the rules, costing

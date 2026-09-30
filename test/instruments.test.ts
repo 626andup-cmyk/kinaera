@@ -225,7 +225,8 @@ describe("ask and the inbox", () => {
     app.store.addMessage({ channelId: ooc.id, author: "user", content: "hey", createdAt: new Date(now.getTime() - 6 * 3_600_000).toISOString() });
     fake.replies.push({ content: "Welcome back!" });
     expect((await wakeups.event("opened")).outcome).toBe("posted");
-    // They've reached out; normally they'd wait for you now.
+    // They've reached out twice; normally they'd wait for you now.
+    app.store.wakeLog.add({ at: new Date(now.getTime() + 3_600_000).toISOString(), reason: "heartbeat", outcome: "posted", channelId: ooc.id, detail: "" });
     now.setHours(15);
     expect((await wakeups.event("opened")).detail).toContain("waiting for you");
     fake.replies.push({ content: "Thanks for answering!" });

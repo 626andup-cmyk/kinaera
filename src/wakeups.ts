@@ -31,9 +31,10 @@
  *   scene ending); chatty (also any time you open the app).
  * - **Quiet hours**: never, except reviews (which are silent work).
  * - **A cooldown** between wake-ups (`wakeCooldownMinutes`, reviews 10).
- * - **No double texts**: once your friend has reached out, they wait for
- *   you to write before reaching out again. Reviews, and replying to your
- *   answer to their ask, are the exceptions.
+ * - **At most one double text**: your friend can reach out twice without
+ *   hearing back (a follow-up is fine), but not a third time until you
+ *   write (`MAX_UNANSWERED`). Reviews, and replying to your answer to their
+ *   ask, are the exceptions (they still count as reaching out).
  * - **Never mid-conversation**: not right after you were talking, and not
  *   while they're writing in that channel. Not without an API key either.
  *
@@ -68,7 +69,7 @@ export interface WakeDetail {
 
 /**
  * Turns your friend takes in their own practice channel, for themselves:
- * they message no one, so "no double texts" and "never mid-conversation"
+ * they message no one, so the double-text limit and "never mid-conversation"
  * don't apply (src/orientation.ts).
  */
 const OWN_TIME: WakeReason[] = ["orientation", "lookback"];
@@ -103,6 +104,9 @@ export const FRESH_SCENE_MINUTES = 60;
 
 /** Within this long (minutes) of the last message, you're mid-conversation. */
 export const CONVERSATION_MINUTES = 30;
+
+/** How many times your friend can reach out without hearing back (one double text, no more). */
+export const MAX_UNANSWERED = 2;
 
 // --------------------------------------------------------------- the log
 
@@ -146,10 +150,15 @@ export class WakeLog {
     return rows[0] ? new Date(rows[0].at) : null;
   }
 
-  /** When your friend last *wrote* on a wake-up. */
-  lastPostedAt(): Date | null {
-    const row = this.recent(300).find((r) => r.outcome === "posted");
-    return row ? new Date(row.at) : null;
+  /**
+   * How many wake-ups wrote to you since `since` (all of them, if null).
+   * Turns of their own (orientation, the look back) write in the practice
+   * channel, to no one, so they don't count.
+   */
+  postedSince(since: Date | null): number {
+    return this.recent(300).filter(
+      (r) => r.outcome === "posted" && !OWN_TIME.includes(r.reason) && (!since || new Date(r.at) > since),
+    ).length;
   }
 }
 
@@ -254,9 +263,9 @@ export class Wakeups {
     const lastTurn = store.wakeLog.lastTurnAt(reason === "review" ? ["review"] : undefined);
     if (lastTurn && now.getTime() - lastTurn.getTime() < cooldown * 60_000) return skip("It's too soon after the last wake-up.");
     if (reason !== "review" && reason !== "answer") {
-      const lastPosted = store.wakeLog.lastPostedAt();
-      if (lastPosted && (!yourLast || new Date(yourLast.createdAt) < lastPosted)) {
-        return skip("Your friend already reached out, and is waiting for you to write.");
+      const unanswered = store.wakeLog.postedSince(yourLast ? new Date(yourLast.createdAt) : null);
+      if (unanswered >= MAX_UNANSWERED) {
+        return skip(`Your friend already reached out ${unanswered === 2 ? "twice" : `${unanswered} times`}, and is waiting for you to write.`);
       }
     }
     // Opening the app, or the heartbeat, in the middle of a conversation.

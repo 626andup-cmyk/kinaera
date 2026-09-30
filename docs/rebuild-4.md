@@ -68,7 +68,7 @@ Every friend has a **practice channel**. It sits apart at the bottom of the side
 
 **How a turn of orientation works.** The whole orientation is one turn. They call tools one after another, with room for 12 rounds instead of the usual 6, and it ends when they stop. They don't have to write a message at all. A message is saved only when a turn ends, so if they write one, a short **second part** follows straight on (no cooldown) where they can try `edit_my_message` on it. The look back gets the same room.
 
-Asks made during an orientation are marked "(orientation)" in your inbox. Orientation and the look back are started by a timer (`Rhythms`, checked every minute). They follow quiet hours and the cooldown, but not "no double texts" or "never mid-conversation", because they message no one. Their cooldown counts from their last turn of their own, not from wake-ups that wrote to you, so an orientation doesn't wait an hour behind the turn where they accepted. No phone notification is sent for them.
+Asks made during an orientation are marked "(orientation)" in your inbox. Orientation and the look back are started by a timer (`Rhythms`, checked every minute). They follow quiet hours and the cooldown, but not the double-text limit or "never mid-conversation", because they message no one. Their cooldown counts from their last turn of their own, not from wake-ups that wrote to you, so an orientation doesn't wait an hour behind the turn where they accepted. No phone notification is sent for them.
 
 **Telling where it stands.** Their page says, and keeps it up to date while open:
 
@@ -103,7 +103,7 @@ This isn't in the guide. You asked for it after stage 4. What's said in one chan
 
 - The tool line under their message says where they posted. The other channel gets its unread dot.
 - If the app isn't open, you get a phone notification, as for a wake-up.
-- A wake-up that only posts elsewhere counts as writing to you, so "no double texts" still holds.
+- A wake-up that only posts elsewhere counts as writing to you, so the double-text limit still holds.
 
 ## Storage and API
 

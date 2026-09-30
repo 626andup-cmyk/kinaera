@@ -15,7 +15,7 @@ The heartbeat is a timer that now and then gives your friend a free moment, even
 
 `src/heartbeat.ts`:
 
-1. **The hard rules** (`Wakeups.blocked` in `src/wakeups.ts`), exactly as for any wake-up: chattiness (off stops the heartbeat), quiet hours, the cooldown, never twice without you writing, and not within 30 minutes of the last message. Most beats stop here, costing nothing. These are plain code, with no model calls.
+1. **The hard rules** (`Wakeups.blocked` in `src/wakeups.ts`), exactly as for any wake-up: chattiness (off stops the heartbeat), quiet hours, the cooldown, never a third time without you writing (one double text is fine), and not within 30 minutes of the last message. Most beats stop here, costing nothing. These are plain code, with no model calls.
 2. **A free moment.** If the rules pass, your friend gets a wake-up turn in your OOC channel, with the reason "heartbeat". Their prompt says they're checking in on their own, how long it's been since you wrote, and what's waiting. They can write, use tools, or call `do_nothing` (or reply `[nothing]` without tools). Every turn goes in the wake-up log.
 
 ## Notifications

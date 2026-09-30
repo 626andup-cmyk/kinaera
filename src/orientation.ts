@@ -20,7 +20,7 @@
  *
  * Both are queued here and started by a timer (`Rhythms`, every minute), through the hard
  * rules in src/wakeups.ts: quiet hours and the cooldown apply, but not "no
- * double texts" or "never mid-conversation", since they message no one.
+ * double texts" (at most one) or "never mid-conversation", since they message no one.
  */
 
 import type { Store } from "./store.ts";
