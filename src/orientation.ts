@@ -133,7 +133,10 @@ export function orientationGuide(tools: string[], focus: string | null, part: 1 
   }
   const steps = [
     has("check") ? words["orientation-check"] : "",
-    has("edit_my_message") ? words["orientation-edit"] : "",
+    // With drafts, a message can be posted and edited in one turn;
+    // without, editing waits for a short second part.
+    has("post_draft") && has("edit_my_message") ? words["orientation-draft"] : has("edit_my_message") ? words["orientation-edit"] : "",
+    has("schedule_wakeup") ? words["orientation-schedule"] : "",
     has("read_prompt_manifest") ? words["orientation-manifest"] : "",
     has("consult") ? words["orientation-consult"] : "",
     has("ask") ? words["orientation-ask"] : "",
@@ -149,7 +152,7 @@ export function orientationGuide(tools: string[], focus: string | null, part: 1 
     .join("\n\n");
 }
 
-/** Queues the look back and runs what's due, now and then. */
+/** Queues the look back and runs what's due (orientation, scheduled wake-ups, the look back), every minute. */
 export class Rhythms {
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
@@ -171,7 +174,7 @@ export class Rhythms {
     this.timer = null;
   }
 
-  /** Start what's due: a queued orientation, then the look back. Never throws. */
+  /** Start what's due: a queued orientation, then a wake-up they scheduled, then the look back. Never throws. */
   async tick(): Promise<WakeResult | null> {
     if (this.running) return null;
     this.running = true;
@@ -190,6 +193,14 @@ export class Rhythms {
         if (part === 1 && result.outcome === "posted" && result.messages.length > 0 && !pendingOrientation(this.store)) {
           queueOrientation(this.store, orientation.focus ?? undefined, 2);
         }
+        return result;
+      }
+      // A wake-up they scheduled for themselves (src/schedule.ts), soonest
+      // first. Held by a rule, it stays waiting for the next tick.
+      const scheduled = this.store.schedule.due(this.now())[0];
+      if (scheduled) {
+        const result = await this.wakeups.event("scheduled", { scheduleId: scheduled.id, channelId: scheduled.channelId ?? undefined });
+        if (result.outcome !== null) this.store.schedule.markDone(scheduled.id);
         return result;
       }
       // The first look back is a week after the journal starts being kept here.

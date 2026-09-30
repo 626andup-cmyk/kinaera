@@ -47,7 +47,7 @@ const PASSAGE_LIMIT = 6_000;
 const PER_SOURCE = 8;
 
 /** The places a check can search. */
-export const CHECK_SOURCES = ["notebook", "channel", "summaries", "library", "journal"] as const;
+export const CHECK_SOURCES = ["notebook", "channel", "summaries", "library", "journal", "drafts"] as const;
 export type CheckSource = (typeof CHECK_SOURCES)[number];
 
 /** Searched when your friend doesn't say. */
@@ -103,6 +103,15 @@ function candidates(store: Store, channel: Channel, source: Exclude<CheckSource,
       source,
       where: `your journal [${e.id.slice(0, 6)}], ${e.createdAt.slice(0, 10)}${e.kept ? " (kept)" : ""}`,
       text: cut(e.content),
+      private: true,
+    }));
+  }
+  if (source === "drafts") {
+    // Private too, like the journal.
+    return store.drafts.all().map((d) => ({
+      source,
+      where: `your draft [${d.id.slice(0, 6)}]${d.title ? ` "${d.title}"` : ""}`,
+      text: cut(d.content),
       private: true,
     }));
   }

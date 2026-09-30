@@ -128,10 +128,21 @@ function renderSelf() {
 
   // The journal: counts only.
   const { entries, kept } = page.journal;
-  $("self-journal").textContent =
-    entries === 0
-      ? `${friend} hasn't written in their journal yet. It's private: only how many entries there are is shown here.`
-      : `${entries} ${entries === 1 ? "entry" : "entries"}, ${kept} kept in front of them. It's private: only the counts are shown here.`;
+  const drafts = page.drafts ?? 0;
+  $("self-journal").textContent = [
+    entries === 0 ? `${friend} hasn't written in their journal yet.` : `Journal: ${entries} ${entries === 1 ? "entry" : "entries"}, ${kept} kept in front of them.`,
+    drafts === 0 ? "No drafts." : `${drafts} ${drafts === 1 ? "draft" : "drafts"} in progress.`,
+    "Both are private: only the counts are shown here.",
+  ].join(" ");
+
+  // What's coming up: wake-ups they set (times only: the notes are theirs), and the heartbeat.
+  const upcoming = (page.upcoming ?? []).map((at) => formatTime(at));
+  $("self-upcoming").textContent = [
+    upcoming.length ? `Wake-ups ${friend} set for themselves: ${upcoming.join(", ")}.` : `${friend} hasn't set any wake-ups for themselves.`,
+    page.nextHeartbeat ? `Next heartbeat around ${formatTime(page.nextHeartbeat)}.` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   renderOrientation();
 }

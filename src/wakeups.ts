@@ -52,7 +52,7 @@ import { invited, orientationGuide, pendingOrientation } from "./orientation.ts"
 import { toolSpecs } from "./tools.ts";
 
 /** What can wake your friend up from outside. */
-export type WakeEvent = "opened" | "scene-ended" | "review" | "heartbeat" | "answer" | "orientation" | "lookback";
+export type WakeEvent = "opened" | "scene-ended" | "review" | "heartbeat" | "answer" | "orientation" | "lookback" | "scheduled";
 
 /** Details some events come with. */
 export interface WakeDetail {
@@ -65,6 +65,8 @@ export interface WakeDetail {
   part?: 1 | 2;
   /** "lookback": the start of the week looked back on. */
   since?: string;
+  /** "scheduled": the wake-up they set (src/schedule.ts). */
+  scheduleId?: number;
 }
 
 /**
@@ -184,9 +186,9 @@ export function inQuietHours(now: Date, start: number, end: number): boolean {
 /** Which events count at each chattiness. */
 const COUNTS: Record<string, WakeReason[]> = {
   off: [],
-  quiet: ["away", "review", "heartbeat", "answer"],
-  normal: ["away", "review", "heartbeat", "answer", "scene-ended"],
-  chatty: ["away", "review", "heartbeat", "answer", "scene-ended", "opened"],
+  quiet: ["away", "review", "heartbeat", "answer", "scheduled"],
+  normal: ["away", "review", "heartbeat", "answer", "scheduled", "scene-ended"],
+  chatty: ["away", "review", "heartbeat", "answer", "scheduled", "scene-ended", "opened"],
 };
 
 // ----------------------------------------------------------- wake-ups
@@ -233,13 +235,13 @@ export class Wakeups {
    * Whether an event would be stopped by the hard rules: the reason why,
    * or `null` if it would go ahead.
    */
-  blocked(event: WakeEvent): string | null {
-    const checked = this.rules(event);
+  blocked(event: WakeEvent, detail: WakeDetail = {}): string | null {
+    const checked = this.rules(event, detail);
     return "skip" in checked ? checked.skip : null;
   }
 
   /** The hard rules, and where your friend would write. */
-  private rules(event: WakeEvent): { skip: string } | { reason: WakeReason; channel: Channel; sinceMs: number | null } {
+  private rules(event: WakeEvent, detail: WakeDetail = {}): { skip: string } | { reason: WakeReason; channel: Channel; sinceMs: number | null } {
     const { store } = this;
     const settings = store.getSettings();
     const now = this.now();
@@ -262,7 +264,9 @@ export class Wakeups {
     const cooldown = reason === "review" ? REVIEW_COOLDOWN_MINUTES : settings.wakeCooldownMinutes;
     const lastTurn = store.wakeLog.lastTurnAt(reason === "review" ? ["review"] : undefined);
     if (lastTurn && now.getTime() - lastTurn.getTime() < cooldown * 60_000) return skip("It's too soon after the last wake-up.");
-    if (reason !== "review" && reason !== "answer") {
+    // Their own plan (a wake-up they scheduled) isn't held back by your
+    // silence; replying to your answer, and reviews, aren't reaching out.
+    if (reason !== "review" && reason !== "answer" && reason !== "scheduled") {
       const unanswered = store.wakeLog.postedSince(yourLast ? new Date(yourLast.createdAt) : null);
       if (unanswered >= MAX_UNANSWERED) {
         return skip(`Your friend already reached out ${unanswered === 2 ? "twice" : `${unanswered} times`}, and is waiting for you to write.`);
@@ -270,11 +274,13 @@ export class Wakeups {
     }
     // Opening the app, or the heartbeat, in the middle of a conversation.
     const last = all.at(-1);
-    if ((reason === "opened" || reason === "heartbeat") && last && now.getTime() - new Date(last.createdAt).getTime() < CONVERSATION_MINUTES * 60_000) {
+    if ((reason === "opened" || reason === "heartbeat" || reason === "scheduled") && last && now.getTime() - new Date(last.createdAt).getTime() < CONVERSATION_MINUTES * 60_000) {
       return skip("You were talking just now: that's a conversation, not a wake-up.");
     }
 
-    const channel = homeChannel(store, channels);
+    // A wake-up they scheduled for a channel happens there (if it's still there).
+    const planned = reason === "scheduled" && detail.channelId ? channels.find((c) => c.id === detail.channelId) : undefined;
+    const channel = planned ?? homeChannel(store, channels);
     if (!channel) return skip("There's no OOC channel for your friend to write in.");
     if (this.friend.isBusy(channel.id)) return skip("Your friend is writing there already.");
     if (reason === "review" && !pickProfile(store, channel).supportsTools) {
@@ -311,7 +317,7 @@ export class Wakeups {
   }
 
   private async wake(event: WakeEvent, detail: WakeDetail, skip: (why: string) => WakeResult): Promise<WakeResult> {
-    const checked = this.rules(event);
+    const checked = this.rules(event, detail);
     if ("skip" in checked) return skip(checked.skip);
     const { reason, channel, sinceMs } = checked;
     const context = wakeContext(this.store, reason, sinceMs, detail);
@@ -388,6 +394,10 @@ export function wakeContext(store: Store, reason: WakeReason, sinceMs: number | 
   }
 
   const context: WakeContext = { reason, sinceUser: sinceMs === null ? null : humanDuration(sinceMs), waiting };
+  if (reason === "scheduled" && detail.scheduleId !== undefined) {
+    const wakeup = store.schedule.get(detail.scheduleId);
+    context.scheduled = { note: wakeup.note, setAt: wakeup.createdAt, dueAt: wakeup.at };
+  }
   if (reason === "lookback") {
     const since = detail.since ?? new Date(Date.now() - 7 * 86_400_000).toISOString();
     context.lookback = store.journal.since(since);

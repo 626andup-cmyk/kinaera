@@ -56,6 +56,7 @@ const settings: Settings = {
 function channel(overrides: Partial<Channel>): Channel {
   return {
     categoryId: null,
+    paused: null,
     id: "story",
     name: "story",
     kind: "rp",

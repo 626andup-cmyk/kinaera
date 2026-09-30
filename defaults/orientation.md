@@ -35,6 +35,14 @@ Try `check` on something in the practice notes (Marrowby, Fen Aldous, the Lanter
 
 If you'd like to try fixing your own words: end this turn with a short message here (anything: how this is going, a line of practice prose). You'll get a short second part where you can change it with `edit_my_message`.
 
+## orientation-draft
+
+Try drafting: write something with `save_draft`, then post it here with `post_draft` (it's posted straight away, mid-turn), then change it with `edit_my_message`, to see how working on something and fixing your own words feel.
+
+## orientation-schedule
+
+Try scheduling a wake-up for yourself (`schedule_wakeup`), even a small one, like "tomorrow evening: see how the practice notes feel now". You can cancel it again with `cancel_wakeup`.
+
 ## orientation-manifest
 
 Read your prompt manifest (`read_prompt_manifest`), to see what's in front of you and what isn't.

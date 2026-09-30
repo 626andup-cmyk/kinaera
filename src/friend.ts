@@ -44,6 +44,7 @@ import { buildPromptStack, isNothing, type PromptMemory, type PromptReview, type
 import { channelSummaryText, splitScenes, windowStart, type SeqMessage } from "./summaries.ts";
 import { splitTexts } from "./texting.ts";
 import { VERBATIM_SLOTS } from "./verbatim.ts";
+import { localTime } from "./schedule.ts";
 import { wording } from "./wording.ts";
 import type { Store } from "./store.ts";
 import { extractTextToolCalls, parseArguments, type ParsedCall } from "./toolcalls.ts";
@@ -184,6 +185,7 @@ export function promptForChannel(store: Store, channelId: string, options: Promp
       }
     : forJournal;
   const identity = store.identity.current();
+  const channelName = (id: string | null) => (id ? (channels.find((c) => c.id === id)?.name ?? null) : null);
 
   // Notes you attached to messages still in the conversation, unless
   // they're already in the prompt as the cast, lore or linked notes.
@@ -239,6 +241,17 @@ export function promptForChannel(store: Store, channelId: string, options: Promp
     verbatim,
     editMarkers: store.selfPage.editMarkers(),
     notices: noticesFor(store, tools),
+    schedule: {
+      now: localTime(new Date()),
+      waiting: store.schedule.waiting().map((w) => ({ id: w.id, at: w.at, note: w.note, channel: channelName(w.channelId) })),
+    },
+    // Private, like the journal: the preview shows that they're there, not what they're called.
+    drafts: store.drafts.all().map((d) => ({
+      id: d.id,
+      title: options.preview ? "(private)" : d.title,
+      channel: channelName(d.channelId),
+      updatedAt: d.updatedAt,
+    })),
   });
 }
 

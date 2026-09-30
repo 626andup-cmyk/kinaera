@@ -31,6 +31,8 @@ import { Identity } from "./identity.ts";
 import { Journal } from "./journal.ts";
 import { SelfPage } from "./selfpage.ts";
 import { Verbatim } from "./verbatim.ts";
+import { Schedule } from "./schedule.ts";
+import { Drafts } from "./drafts.ts";
 import { queueOrientation } from "./orientation.ts";
 import { parseSections } from "./wording.ts";
 import type {
@@ -384,6 +386,8 @@ interface ChannelRow {
   position: number;
   category_id: string | null;
   created_at: string;
+  paused_reason: string | null;
+  paused_at: string | null;
 }
 
 interface CategoryRow {
@@ -431,6 +435,7 @@ function toChannel(row: ChannelRow): Channel {
     position: row.position,
     categoryId: row.category_id,
     createdAt: row.created_at,
+    paused: row.paused_reason !== null ? { reason: row.paused_reason, at: row.paused_at ?? row.created_at } : null,
   };
 }
 
@@ -538,6 +543,10 @@ export class Store {
   readonly journal: Journal;
   /** Moments your friend asked to keep in full (see `src/verbatim.ts`). */
   readonly verbatim: Verbatim;
+  /** Wake-ups your friend set for themselves (stage 5). */
+  readonly schedule: Schedule;
+  /** Your friend's private drafts (stage 5). */
+  readonly drafts: Drafts;
   /** Your friend's recent wake-ups, and what came of them (see `src/wakeups.ts`). */
   readonly wakeLog: WakeLog;
   /**
@@ -595,6 +604,8 @@ export class Store {
     this.selfPage = new SelfPage(this.db);
     this.journal = new Journal(this.db);
     this.verbatim = new Verbatim(this.db);
+    this.schedule = new Schedule(this.db);
+    this.drafts = new Drafts(this.db);
 
     if (isNew) {
       this.seed(options.example ?? true);
@@ -893,6 +904,21 @@ export class Store {
    * Delete a channel and, through `ON DELETE CASCADE`, all its messages.
    * Throws `NotFoundError` if there's no such channel.
    */
+  /**
+   * Your friend pauses a roleplay storyline (`pause_storyline`), with their
+   * reason, or picks it back up (`reason` null). You still can write there.
+   */
+  setPaused(id: string, reason: string | null): Channel {
+    const channel = this.getChannel(id);
+    if (channel.kind !== "rp") throw new ValidationError("Only roleplay channels have a storyline to pause.");
+    const clean = reason?.trim().slice(0, 500) ?? null;
+    if (reason !== null && !clean) throw new ValidationError("Say why you're pausing it: the user sees your reason.");
+    this.db
+      .query("UPDATE channels SET paused_reason = $reason, paused_at = $at WHERE id = $id")
+      .run({ id, reason: clean, at: clean ? new Date().toISOString() : null });
+    return this.getChannel(id);
+  }
+
   deleteChannel(id: string): void {
     if (this.hasChannel(id) && this.getChannel(id).kind === "practice") {
       throw new ValidationError("The practice channel is your friend's own, and can't be deleted.");

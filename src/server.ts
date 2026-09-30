@@ -378,6 +378,11 @@ export function createApp(config: Config): App {
       history: store.identity.history(),
       selfPage: store.selfPage.view(),
       journal: store.journal.counts(),
+      // Drafts are private too: only how many.
+      drafts: store.drafts.count(),
+      // Wake-ups they set for themselves: when, not what for (their notes are theirs).
+      upcoming: store.schedule.waiting().map((w) => w.at),
+      nextHeartbeat: heartbeat.nextAt()?.toISOString() ?? null,
       orientation: orientationState(),
       waiting: waitingOnFriend(),
     };

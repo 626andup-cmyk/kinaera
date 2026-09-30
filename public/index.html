@@ -222,6 +222,9 @@
             <button id="error-dismiss" type="button" class="link-button" aria-label="Dismiss">✕</button>
           </div>
 
+          <!-- A storyline your friend paused, and why (pause_storyline). -->
+          <div id="paused-banner" class="paused-banner" role="status" hidden></div>
+
           <form id="composer-form" class="composer-row">
             <!-- Casual scenes only: which of your characters you're posting as. -->
             <label class="posting-as-row" id="posting-as-row" hidden>
@@ -724,8 +727,13 @@
       </section>
 
       <section class="self-section">
-        <h3 class="section-title">Their journal</h3>
+        <h3 class="section-title">Their journal and drafts</h3>
         <p class="hint" id="self-journal"></p>
+      </section>
+
+      <section class="self-section">
+        <h3 class="section-title">Coming up</h3>
+        <p class="hint" id="self-upcoming"></p>
       </section>
 
       <section class="self-section">

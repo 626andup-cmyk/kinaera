@@ -227,6 +227,11 @@ export interface Channel {
   categoryId: string | null;
   /** When the channel was created, as an ISO 8601 timestamp. */
   createdAt: string;
+  /**
+   * Roleplay channels: paused by your friend (`pause_storyline`), with
+   * their reason, or `null`. You can still write; it's their word on it.
+   */
+  paused: { reason: string; at: string } | null;
 }
 
 /**

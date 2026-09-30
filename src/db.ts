@@ -644,6 +644,41 @@ export const MIGRATIONS: Migration[] = [
   ALTER TABLE inbox ADD COLUMN orientation INTEGER NOT NULL DEFAULT 0;
   `,
   },
+
+  // ---------------------------------------------------------------- 5
+  // Rebuild stage 5: time. Wake-ups your friend schedules for themselves,
+  // their private drafts, and storylines they've paused.
+  `
+  CREATE TABLE schedule (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- When it's due (ISO, UTC).
+    at         TEXT NOT NULL,
+    -- Their note to themselves, shown when it fires.
+    note       TEXT NOT NULL,
+    -- Where to wake up (null: their usual OOC channel).
+    channel_id TEXT REFERENCES channels (id) ON DELETE SET NULL,
+    -- 'waiting', 'done' (it fired), or 'cancelled'.
+    status     TEXT NOT NULL DEFAULT 'waiting' CHECK (status IN ('waiting', 'done', 'cancelled')),
+    created_at TEXT NOT NULL,
+    done_at    TEXT
+  );
+  CREATE INDEX schedule_by_status ON schedule (status, at);
+
+  -- Private, like the journal: no screen, never in a log.
+  CREATE TABLE drafts (
+    id         TEXT PRIMARY KEY,
+    title      TEXT NOT NULL DEFAULT '',
+    content    TEXT NOT NULL,
+    -- Where they mean to post it (null: undecided).
+    channel_id TEXT REFERENCES channels (id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  -- A roleplay channel your friend paused (pause_storyline), and why.
+  ALTER TABLE channels ADD COLUMN paused_reason TEXT;
+  ALTER TABLE channels ADD COLUMN paused_at TEXT;
+  `,
 ];
 
 /**

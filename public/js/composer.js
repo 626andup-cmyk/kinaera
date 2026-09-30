@@ -14,6 +14,10 @@ export function renderComposer() {
   if (!channel) return;
   // Their practice channel is theirs to write in: you can only read it.
   $("composer-form").hidden = channel.kind === "practice";
+  // A storyline they paused: their word on it, shown above where you write.
+  const banner = $("paused-banner");
+  banner.hidden = !channel.paused;
+  if (channel.paused) banner.textContent = `⏸ ${state.settings.friendName} paused this storyline: “${channel.paused.reason}” You can still write here.`;
 
   const busy = state.busy.has(channel.id);
   // "Writing" while the model works; "typing" while texts are revealed one by one.

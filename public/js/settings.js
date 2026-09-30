@@ -100,6 +100,7 @@ const WAKE_REASONS = {
   heartbeat: "Heartbeat",
   answer: "You answered an ask",
   orientation: "Orientation",
+  scheduled: "A wake-up they set",
   lookback: "The weekly look back",
 };
 const WAKE_OUTCOMES = { posted: "wrote to you", quiet: "didn't write", failed: "failed" };

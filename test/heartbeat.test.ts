@@ -98,7 +98,7 @@ describe("the heartbeat", () => {
     expect(beat.outcome).toBe("woke");
     expect(beat.wake).toMatchObject({ outcome: "posted", reason: "heartbeat" });
     expect(fake.jevRequests).toHaveLength(0);
-    expect(JSON.stringify(fake.requests[0]!.messages)).toContain("checking in on your own");
+    expect(JSON.stringify(fake.requests[0]!.messages)).toContain("A free moment");
     // You weren't looking: a notification.
     expect(notified).toEqual([
       { title: "Arlo in #ooc", text: "Random thought: what if Ilse's lighthouse was the vault in a heist?", channelId: ooc.id },

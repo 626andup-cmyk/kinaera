@@ -24,6 +24,8 @@ import { CHECK_SOURCES, DEFAULT_SOURCES, runCheck, type CheckSource } from "./ch
 import { NotFoundError, PermissionError, ValidationError } from "./errors.ts";
 import { friendCharacterNames, pickProfile, profileRequest, promptManifest } from "./friend.ts";
 import { replyToMessages } from "./posts.ts";
+import { localTime } from "./schedule.ts";
+import { draftId } from "./drafts.ts";
 import { queueOrientation } from "./orientation.ts";
 import { VERBATIM_SLOTS } from "./verbatim.ts";
 import { ASK_KIND_NAMES, ASK_KINDS, type AskKind } from "./inbox.ts";
@@ -818,7 +820,7 @@ const round2 = (p: number) => Math.round(p * 100) / 100;
 
 /** "the notebook, this channel and the summaries" */
 function sourceNames(sources: CheckSource[]): string {
-  const names = { notebook: "the notebook", channel: "this channel", summaries: "the summaries", library: "the library", journal: "your journal" };
+  const names = { notebook: "the notebook", channel: "this channel", summaries: "the summaries", library: "the library", journal: "your journal", drafts: "your drafts" };
   const list = sources.map((s) => names[s]);
   return list.length > 1 ? `${list.slice(0, -1).join(", ")} and ${list.at(-1)}` : (list[0] ?? "");
 }
@@ -835,7 +837,7 @@ INSTRUMENTS.push(
         sources: {
           type: "array",
           items: { type: "string", enum: [...CHECK_SOURCES] },
-          description: `Where to look. Default: ${DEFAULT_SOURCES.join(", ")}. "channel" is this channel's messages; "library" is the reference library.`,
+          description: `Where to look. Default: ${DEFAULT_SOURCES.join(", ")}. "channel" is this channel's messages; "library" is the reference library; "journal" and "drafts" are yours (private: the check log never shows what they say).`,
         },
       },
       ["question", "rephrased"],
@@ -1299,24 +1301,9 @@ OWN.push(
     run: (ctx, args) => {
       const channel = findChannel(ctx, need(args, "channel"));
       if (channel.id === ctx.channel.id) throw new ToolError("That's this channel: just write your reply here.");
-      if (ctx.turn?.postedIn?.includes(channel.id)) throw new ToolError(`You've already posted in ${hash(channel)} this turn.`);
-      if (ctx.isBusy?.(channel.id)) throw new ToolError(`You're already writing in ${hash(channel)} (another turn). Try again later.`);
       const text = need(args, "text").trim();
       const title = maybe(args, "new_scene");
-      if (title !== undefined && channel.kind !== "rp") throw new ToolError("Only roleplay channels have scenes.");
-      if (title !== undefined) ctx.store.addSceneBreak(channel.id, "friend", title);
-      // Re-read the channel: a new scene may have switched its mode.
-      const current = ctx.store.getChannel(channel.id);
-      const voices = friendCharacterNames(ctx.store, channel.id).map((name) => ({ name }));
-      const messages = ctx.store.addTurn(
-        replyToMessages(current, text, ctx.model ?? "", voices).map((m) => ({ ...m, ...(ctx.profileName ? { profile: ctx.profileName } : {}) })),
-      );
-      if (ctx.turn) ctx.turn.postedIn = [...(ctx.turn.postedIn ?? []), channel.id];
-      try {
-        ctx.onPosted?.(current, messages);
-      } catch (error) {
-        console.warn("[tools] couldn't pass on a post", error);
-      }
+      postMessage(ctx, channel, text, title);
       return {
         result: { posted: true, channel: hash(channel), ...(title !== undefined ? { new_scene: title } : {}), note: "The user sees it there. Your reply here is separate." },
         summary: `${title !== undefined ? `started a scene ("${snip(title)}") and ` : ""}posted in ${hash(channel)}: "${snip(text)}"`,
@@ -1324,6 +1311,201 @@ OWN.push(
     },
   },
 );
+
+// --------------------------------------------------------------- time
+
+OWN.push(
+  {
+    name: "schedule_wakeup",
+    description:
+      'Set a wake-up for yourself: at that time you get a turn of your own, with your note in "Why you\'re up". For plans and follow-ups, like "ask how the interview went". It happens as soon as the hard rules allow (quiet hours and the cooldown still apply, but not the double-text limit: it\'s your plan). Times are the user\'s local time: "in 3 hours", "tomorrow 9am", "thursday 19:00", or "2026-10-08T19:00".',
+    parameters: object(
+      {
+        when: str('When: "in 3 hours", "tomorrow 9am", "thursday 19:00", or a date and time.'),
+        note: str("Your note to yourself: what it's for."),
+        channel: str("Optional: where to wake up, like #story. Leave out for your usual OOC channel."),
+      },
+      ["when", "note"],
+    ),
+    run: (ctx, args) => {
+      const where = maybe(args, "channel");
+      const channel = where ? findChannel(ctx, where) : null;
+      const wakeup = ctx.store.schedule.add(need(args, "when"), need(args, "note"), channel?.id ?? null);
+      const off = ctx.store.getSettings().wakeups === "off";
+      return {
+        result: {
+          scheduled: `[w${wakeup.id}]`,
+          at: localTime(new Date(wakeup.at)),
+          ...(off ? { note: "Heads up: the user has turned wake-ups off (chattiness), so it won't happen unless they turn them back on." } : {}),
+        },
+        summary: `scheduled a wake-up for ${localTime(new Date(wakeup.at))}`,
+      };
+    },
+  },
+  {
+    name: "list_my_wakeups",
+    description: "See the wake-ups you've set that haven't happened yet, soonest first, with their notes.",
+    parameters: object({}),
+    run: ({ store }) => ({
+      result: store.schedule.waiting().map((w) => ({ id: `[w${w.id}]`, at: localTime(new Date(w.at)), note: w.note })),
+      summary: "looked at their wake-ups",
+    }),
+  },
+  {
+    name: "cancel_wakeup",
+    description: "Cancel a wake-up you set, by its id (like w3).",
+    parameters: object({ id: str("The wake-up's id.") }, ["id"]),
+    run: ({ store }, args) => {
+      const id = Number(need(args, "id").replace(/^\[?w?|\]$/gi, ""));
+      if (!Number.isInteger(id) || !store.schedule.waiting().some((w) => w.id === id)) throw new ToolError(`No wake-up "${args.id}" is waiting.`);
+      const wakeup = store.schedule.cancel(id);
+      return { result: { cancelled: true }, summary: `cancelled their wake-up for ${localTime(new Date(wakeup.at))}` };
+    },
+  },
+
+  // -------------------------------------------------------------- drafts
+  {
+    name: "save_draft",
+    description:
+      "Save a draft to work on across turns before sending it. Private, like your journal: no screen in the app, never in a log. Give an id to rewrite an existing draft (the text in full); leave it out for a new one.",
+    parameters: object(
+      {
+        text: str("The draft's text, in full."),
+        title: str("Optional: a short title, so you know which is which."),
+        channel: str("Optional: where you mean to post it, like #story."),
+        id: str("Optional: the draft to rewrite."),
+      },
+      ["text"],
+    ),
+    private: true,
+    run: (ctx, args) => {
+      const where = maybe(args, "channel");
+      const channelId = where ? findChannel(ctx, where).id : undefined;
+      const id = maybe(args, "id");
+      const draft = id
+        ? ctx.store.drafts.update(findDraft(ctx.store, id).id, { content: need(args, "text"), title: maybe(args, "title"), channelId })
+        : ctx.store.drafts.create(need(args, "text"), maybe(args, "title") ?? "", channelId ?? null);
+      return { result: { saved: `[${draftId(draft.id)}]` }, summary: id ? "reworked a draft" : "started a draft" };
+    },
+  },
+  {
+    name: "list_drafts",
+    description: "Read your drafts, most recently worked on first, each with its id.",
+    parameters: object({}),
+    private: true,
+    run: ({ store }) => ({
+      result: store.drafts.all().map((d) => {
+        const channel = d.channelId && store.hasChannel(d.channelId) ? `#${store.getChannel(d.channelId).name}` : null;
+        return { id: `[${draftId(d.id)}]`, title: d.title || "(untitled)", ...(channel ? { for: channel } : {}), updated: ago(d.updatedAt), text: d.content };
+      }),
+      summary: "read their drafts",
+    }),
+  },
+  {
+    name: "post_draft",
+    description:
+      "Post a draft as a message, now: in the channel it's for, or the one you name (this one included). It becomes an ordinary message the user sees, and the draft is gone. Optionally start a new scene first (roleplay channels).",
+    parameters: object(
+      {
+        id: str("The draft's id."),
+        channel: str("Optional: where to post it. Leave out for the channel it's for, or this one."),
+        new_scene: str("Optional, roleplay channels: start a new scene with this title first."),
+      },
+      ["id"],
+    ),
+    run: (ctx, args) => {
+      const draft = findDraft(ctx.store, need(args, "id"));
+      const where = maybe(args, "channel");
+      const channel = where
+        ? findChannel(ctx, where)
+        : draft.channelId && ctx.store.hasChannel(draft.channelId)
+          ? ctx.store.getChannel(draft.channelId)
+          : ctx.store.getChannel(ctx.channel.id);
+      // The practice channel feeds nothing else, and nothing else feeds it.
+      if ((channel.kind === "practice") !== (ctx.channel.kind === "practice")) {
+        throw new ToolError(ctx.channel.kind === "practice" ? "From your practice channel, a draft can only be posted here." : "The practice channel is for orientation.");
+      }
+      postMessage(ctx, channel, draft.content, maybe(args, "new_scene"));
+      ctx.store.drafts.remove(draft.id);
+      const here = channel.id === ctx.channel.id;
+      return {
+        result: { posted: true, channel: hash(channel), note: here ? "It's posted here now, before your reply (which is separate, and can be nothing)." : "The user sees it there." },
+        summary: `posted a draft in ${hash(channel)}`,
+      };
+    },
+  },
+  {
+    name: "delete_draft",
+    description: "Let a draft go, by its id.",
+    parameters: object({ id: str("The draft's id.") }, ["id"]),
+    private: true,
+    run: ({ store }, args) => {
+      store.drafts.remove(findDraft(store, need(args, "id")).id);
+      return { result: { deleted: true }, summary: "let a draft go" };
+    },
+  },
+
+  // ------------------------------------------------------------ storylines
+  {
+    name: "pause_storyline",
+    description:
+      "Pause a roleplay channel's storyline, with your reason, which the user sees there. For when you need a break from it, or want to rethink where it's going. The user can still write there; it's your word on it, not a lock. resume_storyline picks it back up.",
+    parameters: object({ channel: str("The roleplay channel, like #story. Leave out for this one."), reason: str("Why, for the user.") }, ["reason"]),
+    run: (ctx, args) => {
+      const channel = findChannel(ctx, maybe(args, "channel"));
+      ctx.store.setPaused(channel.id, need(args, "reason"));
+      return { result: { paused: hash(channel) }, summary: `paused the storyline in ${hash(channel)}` };
+    },
+  },
+  {
+    name: "resume_storyline",
+    description: "Pick a storyline you paused back up.",
+    parameters: object({ channel: str("The roleplay channel, like #story. Leave out for this one.") }),
+    run: (ctx, args) => {
+      const channel = findChannel(ctx, maybe(args, "channel"));
+      if (!channel.paused) throw new ToolError(`${hash(channel)} isn't paused.`);
+      ctx.store.setPaused(channel.id, null);
+      return { result: { resumed: hash(channel) }, summary: `picked the storyline in ${hash(channel)} back up` };
+    },
+  },
+);
+
+/** A draft by its short id. */
+function findDraft(store: Store, id: string) {
+  try {
+    return store.drafts.find(id);
+  } catch {
+    throw new ToolError(`There's no draft "${id}". list_drafts shows them.`);
+  }
+}
+
+/**
+ * Post a message as your friend in a channel, mid-turn (post_in_channel,
+ * post_draft): once per channel per turn, never where another turn is
+ * writing, optionally starting a new scene first. In the channel the turn
+ * is in, it's saved now, before their reply.
+ */
+function postMessage(ctx: ToolContext, channel: Channel, text: string, newScene?: string): Message[] {
+  if (ctx.turn?.postedIn?.includes(channel.id)) throw new ToolError(`You've already posted in ${hash(channel)} this turn.`);
+  if (channel.id !== ctx.channel.id && ctx.isBusy?.(channel.id)) {
+    throw new ToolError(`You're already writing in ${hash(channel)} (another turn). Try again later.`);
+  }
+  if (newScene !== undefined && channel.kind !== "rp") throw new ToolError("Only roleplay channels have scenes.");
+  if (newScene !== undefined) ctx.store.addSceneBreak(channel.id, "friend", newScene);
+  // Re-read the channel: a new scene may have switched its mode.
+  const current = ctx.store.getChannel(channel.id);
+  const voices = friendCharacterNames(ctx.store, channel.id).map((name) => ({ name }));
+  const messages = ctx.store.addTurn(
+    replyToMessages(current, text, ctx.model ?? "", voices).map((m) => ({ ...m, ...(ctx.profileName ? { profile: ctx.profileName } : {}) })),
+  );
+  if (ctx.turn) ctx.turn.postedIn = [...(ctx.turn.postedIn ?? []), channel.id];
+  try {
+    ctx.onPosted?.(current, messages);
+  } catch (error) {
+    console.warn("[tools] couldn't pass on a post", error);
+  }
+  return messages;
+}
 
 /** A self-page note by the start of its id. */
 function selfNote(store: Store, id: string) {

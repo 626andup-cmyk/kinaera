@@ -52,6 +52,7 @@ import { BUBBLE_MARKER, TEXTING_STYLE } from "./texting.ts";
 import type { PromptEntry } from "./notebook.ts";
 import { playedBy } from "./permissions.ts";
 import { wording } from "./wording.ts";
+import { localTime } from "./schedule.ts";
 import type { Channel, ChannelKind, ChannelMode, ChatMessage, Message, NotebookEntry, Player, Settings } from "./types.ts";
 
 /**
@@ -115,7 +116,7 @@ export const NUDGES: Record<ChannelKind, { continue: string; opening: string }> 
  * message from you: you opened the app, a scene ended, something is
  * waiting for them, or (endgame) the heartbeat.
  */
-export type WakeReason = "opened" | "away" | "scene-ended" | "review" | "heartbeat" | "answer" | "orientation" | "lookback";
+export type WakeReason = "opened" | "away" | "scene-ended" | "review" | "heartbeat" | "answer" | "orientation" | "lookback" | "scheduled";
 
 /** What a wake-up turn is told about why it's happening. */
 export interface WakeContext {
@@ -128,6 +129,8 @@ export interface WakeContext {
   scene?: { channel: string; title: string; summary: string | null };
   /** For "orientation": the guide, put together for the tools they have (src/orientation.ts). */
   orientation?: string;
+  /** For "scheduled": the wake-up they set themselves (src/schedule.ts). */
+  scheduled?: { note: string; setAt: string; dueAt: string };
   /** For "lookback": this week's journal entries. */
   lookback?: { id: string; content: string; kept: boolean; createdAt: string }[];
 }
@@ -199,12 +202,16 @@ export function describeWake(wake: WakeContext, tools: boolean): string {
     ].join("\n\n");
   }
   const since = wake.sinceUser ? `It's been ${wake.sinceUser} since the user last wrote anything.` : "The user hasn't written anything yet.";
+  const time = wording("time");
   const why: Record<WakeReason, string> = {
     opened: "The user just opened the app.",
     away: `The user just opened the app after being away for ${wake.sinceUser ?? "a while"}.`,
     "scene-ended": `The user just ended a scene${wake.scene ? ` in #${wake.scene.channel}` : ""}.`,
-    review: "The user suggested a notebook change that's waiting for your review.",
-    heartbeat: "Nobody asked: you're checking in on your own, the way a friend texts out of nowhere.",
+    review: time.review ?? "",
+    heartbeat: time.heartbeat ?? "",
+    scheduled: wake.scheduled
+      ? (time.scheduled ?? "").replace("{note}", wake.scheduled.note).replace("{setAt}", localTime(new Date(wake.scheduled.setAt)))
+      : "",
     answer: `The user answered something you asked them (see "What you've asked of the user").`,
     orientation: "",
     lookback: "",
@@ -342,6 +349,10 @@ export interface PromptInput {
   editMarkers?: boolean;
   /** Something for the friend to know this turn, like an orientation invitation. */
   notices?: string[];
+  /** The time now (the user's local time, in words) and their waiting wake-ups (src/schedule.ts). */
+  schedule?: { now: string; waiting: { id: number; at: string; note: string; channel: string | null }[] };
+  /** Their drafts, by title (src/drafts.ts). Private: the preview replaces the titles. */
+  drafts?: { id: string; title: string; channel: string | null; updatedAt: string }[];
 }
 
 /** Layer 5: the summaries of what came before the recent messages. */
@@ -408,6 +419,8 @@ export function buildPromptStack({
   verbatim,
   editMarkers,
   notices,
+  schedule,
+  drafts,
 }: PromptInput): ChatMessage[] {
   const isRp = channel.kind === "rp";
   const isPractice = channel.kind === "practice";
@@ -434,8 +447,19 @@ export function buildPromptStack({
     // of them (src/selfpage.ts, src/journal.ts).
     { title: "Your self-page (short version)", content: tools ? describeSelfPage(selfPage ?? "") : null },
     { title: "Your journal", content: tools ? describeJournal(journal) : null },
-    // The practice channel explains itself.
-    { title: "This channel", content: isPractice ? (wording("orientation")["practice-framing"] ?? null) : null },
+    // Their own time: what time it is, what they've planned, what they're
+    // working on (src/schedule.ts, src/drafts.ts).
+    { title: "Your time", content: tools ? describeSchedule(schedule) : null },
+    { title: "Your drafts", content: tools ? describeDrafts(drafts) : null },
+    // The practice channel explains itself; a paused storyline says so.
+    {
+      title: "This channel",
+      content: isPractice
+        ? (wording("orientation")["practice-framing"] ?? null)
+        : channel.paused
+          ? (wording("time")["paused-here"] ?? "").replace("{reason}", channel.paused.reason)
+          : null,
+    },
     // Layer 2: how to write here. The fixed instructions for this scene's
     // mode (RP only), then your friend prompt for this kind of channel.
     {
@@ -473,7 +497,7 @@ export function buildPromptStack({
     { title: "Notices", content: (notices ?? []).map((line) => `- ${line}`).join("\n") },
     { title: "Tools", content: tools ? toolGuidance(channel.kind) : null },
     // Honest notes on how things work here (defaults/standing.md).
-    { title: "Good to know", content: standingNotes(tools ?? false) },
+    { title: "Good to know", content: standingNotes(tools ?? false, isRp) },
     { title: "Reference library", content: tools ? describeLibrary(library ?? []) : null },
     // A wake-up (stage 8): why your friend is taking a turn on their own.
     { title: "Why you're up", content: wake ? describeWake(wake, tools ?? false) : null },
@@ -565,9 +589,11 @@ function describeReviews(reviews: PromptReview[]): string | null {
  * descriptions of how things work here, like the user being able to edit
  * messages. Never instructions on how to feel about it.
  */
-export function standingNotes(tools: boolean): string | null {
+export function standingNotes(tools: boolean, roleplay = false): string | null {
   const notes = wording("standing");
   const lines = [
+    // Declining is welcome (in roleplay, where going along is the pull).
+    roleplay && tools ? wording("time").declining : undefined,
     tools ? notes.history : notes["history-no-tools"],
     tools ? notes["tools-visible"] : undefined,
     tools ? notes.identity : undefined,
@@ -596,6 +622,27 @@ export function describeJournal(journal: PromptInput["journal"]): string | null 
   }
   if (lines.length === 0) return "(Nothing yet. write_journal adds an entry.)";
   return lines.join("\n\n");
+}
+
+/** "Your time": the time now, and the wake-ups they've set (their notes are theirs to see). */
+export function describeSchedule(schedule: PromptInput["schedule"]): string | null {
+  if (!schedule) return null;
+  const time = wording("time");
+  if (schedule.waiting.length === 0) return (time["schedule-empty"] ?? "").replace("{now}", schedule.now);
+  return [
+    (time.schedule ?? "").replace("{now}", schedule.now),
+    "Wake-ups you've set:",
+    ...schedule.waiting.map((w) => `- [w${w.id}] ${localTime(new Date(w.at))}${w.channel ? ` in #${w.channel}` : ""}: ${w.note}`),
+  ].join("\n");
+}
+
+/** "Your drafts": their titles, so they know what's waiting (the text is read with list_drafts). */
+export function describeDrafts(drafts: PromptInput["drafts"]): string | null {
+  if (!drafts || drafts.length === 0) return null;
+  return [
+    wording("time").drafts ?? "",
+    ...drafts.map((d) => `- [${d.id.slice(0, 6)}] ${d.title || "(untitled)"}${d.channel ? ` (for #${d.channel})` : ""}`),
+  ].join("\n");
 }
 
 /** Messages kept in full (keep_verbatim) that are older than the recent ones. */
@@ -688,7 +735,8 @@ export function describeChannels(
       const about = digest ? `. ${digest}` : "";
       if (c.kind === "ooc") return `- #${c.name}${inCategory}: another out-of-character chat${about}`;
       const names = castNames[c.id] ?? [];
-      return `- #${c.name}${inCategory}: roleplay${names.length ? `, you play ${names.join(", ")}` : ""}${about}`;
+      const paused = c.paused ? ` (${wording("time")["paused-channel"] ?? "paused"}: "${c.paused.reason}")` : "";
+      return `- #${c.name}${inCategory}: roleplay${paused}${names.length ? `, you play ${names.join(", ")}` : ""}${about}`;
     })
     .join("\n");
 }
