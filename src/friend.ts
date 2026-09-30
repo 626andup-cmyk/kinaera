@@ -55,6 +55,12 @@ import type { ApiMessage, ApiToolCall, Channel, ChatMessage, CommentThread, Mess
 export const MAX_ROUNDS = 6;
 
 /**
+ * Rounds for a turn of their own (orientation, the look back): trying
+ * several tools one after another takes more, and it messages no one.
+ */
+export const OWN_TIME_ROUNDS = 12;
+
+/**
  * What caused a turn. Used for the server log. "wake" is a turn on their
  * own (stage 8, see src/wakeups.ts).
  */
@@ -673,11 +679,12 @@ export class Friend {
     const { conversation, tools, context, profile, turnId, signal } = turn;
     const toolCalls: ToolCallRecord[] = [];
     let content = "";
+    const maxRounds = context.wake === "orientation" || context.wake === "lookback" ? OWN_TIME_ROUNDS : MAX_ROUNDS;
 
-    for (let round = 0; round < MAX_ROUNDS; round++) {
+    for (let round = 0; round < maxRounds; round++) {
       if (signal.aborted) throw new CancelledError();
       // The last round offers no tools, so the model has to write.
-      const offered = round < MAX_ROUNDS - 1 ? tools : [];
+      const offered = round < maxRounds - 1 ? tools : [];
       const response = await createChatCompletion(this.api, {
         ...profileRequest(profile),
         messages: conversation,

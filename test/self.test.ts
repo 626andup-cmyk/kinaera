@@ -261,9 +261,23 @@ describe("orientation", () => {
     expect(result).toMatchObject({ outcome: "posted", reason: "orientation" });
     expect(JSON.stringify(fake.requests[0]!.messages)).toContain("This is an orientation");
     expect(app.store.getMessages(practice().id).map((m) => m.content)).toEqual(["Trying things."]);
+    // They wrote a message, so a short second part follows, for editing it
+    // (straight on: no cooldown), with more rounds than a normal turn.
+    expect(pendingOrientation(app.store)).toMatchObject({ part: 2 });
+    fake.replies.push({ toolCalls: [{ name: "edit_my_message", arguments: { quote: "Trying things", new_text: "Trying things out." } }] }, { content: "[nothing]" });
+    expect(await rhythms.tick()).toMatchObject({ reason: "orientation" });
+    expect(JSON.stringify(fake.requests.at(-2)!.messages)).toContain("second part of your orientation");
+    expect(app.store.getMessages(practice().id).map((m) => m.content)).toEqual(["Trying things out."]);
     expect(pendingOrientation(app.store)).toBeNull();
     // Asks made during it are marked.
     expect(app.store.inbox.open()[0]).toMatchObject({ orientation: true });
+  });
+
+  test("has room to try several tools, one after another", async () => {
+    for (let i = 0; i < 9; i++) fake.replies.push({ toolCalls: [{ name: "read_prompt_manifest", arguments: {} }] });
+    fake.replies.push({ content: "[nothing]" });
+    await rhythms.tick();
+    expect(app.store.toolLog.forChannel(practice().id).filter((c) => c.status === "ok")).toHaveLength(9);
   });
 
   test("they can start one themselves, with a focus", async () => {
@@ -335,7 +349,7 @@ describe("orientation", () => {
     app.store.wakeLog.add({ at: new Date(now.getTime() - 60_000).toISOString(), reason: "review", outcome: "posted", channelId: ooc.id, detail: "" });
     expect(await rhythms.tick()).toMatchObject({ reason: "orientation", outcome: "posted" });
     const state = (await call("GET", "/api/friend-page")).data.orientation;
-    expect(state).toMatchObject({ pending: false, held: null, last: { outcome: "posted" } });
+    expect(state).toMatchObject({ held: null, last: { outcome: "posted" } });
   });
 
   test("the weekly look back shows the week's journal", async () => {

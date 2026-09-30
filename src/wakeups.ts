@@ -47,7 +47,7 @@ import type { WakeContext, WakeReason } from "./prompt.ts";
 import type { Store } from "./store.ts";
 import { splitScenes } from "./summaries.ts";
 import type { Channel, Message } from "./types.ts";
-import { invited, orientationGuide } from "./orientation.ts";
+import { invited, orientationGuide, pendingOrientation } from "./orientation.ts";
 import { toolSpecs } from "./tools.ts";
 
 /** What can wake your friend up from outside. */
@@ -60,6 +60,8 @@ export interface WakeDetail {
   breakId?: string;
   /** "orientation": what they asked to focus on. */
   focus?: string;
+  /** "orientation": its second part (editing what they wrote in the first). */
+  part?: 1 | 2;
   /** "lookback": the start of the week looked back on. */
   since?: string;
 }
@@ -290,7 +292,9 @@ export class Wakeups {
     // look back), not from wake-ups that wrote to you: an orientation you
     // just invited them to shouldn't wait an hour behind that invitation.
     const lastTurn = store.wakeLog.lastTurnAt(OWN_TIME as WakeReason[]);
-    if (lastTurn && now.getTime() - lastTurn.getTime() < settings.wakeCooldownMinutes * 60_000) return skip("It's too soon after their last turn of their own.");
+    // An orientation's second part follows straight on from its first.
+    const continuing = reason === "orientation" && pendingOrientation(store)?.part === 2;
+    if (!continuing && lastTurn && now.getTime() - lastTurn.getTime() < settings.wakeCooldownMinutes * 60_000) return skip("It's too soon after their last turn of their own.");
     const channel = store.ensurePractice();
     if (this.friend.isBusy(channel.id)) return skip("Your friend is writing there already.");
     if (!pickProfile(store, channel).supportsTools) return skip("The profile that writes there can't use tools.");
@@ -304,7 +308,7 @@ export class Wakeups {
     const context = wakeContext(this.store, reason, sinceMs, detail);
     if (reason === "orientation") {
       const tools = toolSpecs({ store: this.store, channel, mode: "post", api: this.friend.api }).map((t) => t.function.name);
-      context.orientation = orientationGuide(tools, detail.focus ?? null);
+      context.orientation = orientationGuide(tools, detail.focus ?? null, detail.part ?? 1);
     }
 
     try {

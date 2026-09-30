@@ -38,8 +38,8 @@ const HELD = "orientation.held";
 export const LOOKBACK_DAYS = 7;
 
 /** Queue an orientation (when they're made, or when they ask). */
-export function queueOrientation(store: Store, focus?: string): void {
-  store.appState.set(PENDING, JSON.stringify({ focus: focus?.trim().slice(0, 200) || null, at: new Date().toISOString() }));
+export function queueOrientation(store: Store, focus?: string, part: 1 | 2 = 1): void {
+  store.appState.set(PENDING, JSON.stringify({ focus: focus?.trim().slice(0, 200) || null, at: new Date().toISOString(), part }));
 }
 
 /** Why the waiting orientation hasn't started yet, if a rule is holding it. */
@@ -48,9 +48,9 @@ export function orientationHeld(store: Store): string | null {
 }
 
 /** The orientation waiting to start, if any. */
-export function pendingOrientation(store: Store): { focus: string | null; at: string } | null {
+export function pendingOrientation(store: Store): { focus: string | null; at: string; part?: 1 | 2 } | null {
   const value = store.appState.get(PENDING);
-  return value ? (JSON.parse(value) as { focus: string | null; at: string }) : null;
+  return value ? (JSON.parse(value) as { focus: string | null; at: string; part?: 1 | 2 }) : null;
 }
 
 /** You invite your friend to an orientation: they're told on their next turn. */
@@ -121,9 +121,16 @@ export function noteNewProfiles(store: Store, names: string[]): void {
  * The orientation guide, put together from `defaults/orientation.md`: only
  * the steps whose tools your friend has this turn.
  */
-export function orientationGuide(tools: string[], focus: string | null): string {
+export function orientationGuide(tools: string[], focus: string | null, part: 1 | 2 = 1): string {
   const words = wording("orientation");
   const has = (name: string) => tools.includes(name);
+  // The second part: fixing the message they wrote in the first, and
+  // whatever they skipped or want another go at.
+  if (part === 2) {
+    return [words["orientation-part-two"] ?? "", words["orientation-write"] ?? "", words["orientation-close"] ?? ""]
+      .filter((p) => p.trim())
+      .join("\n\n");
+  }
   const steps = [
     has("check") ? words["orientation-check"] : "",
     has("edit_my_message") ? words["orientation-edit"] : "",
@@ -171,12 +178,18 @@ export class Rhythms {
     try {
       const orientation = pendingOrientation(this.store);
       if (orientation) {
-        const result = await this.wakeups.event("orientation", { focus: orientation.focus ?? undefined });
+        const part = orientation.part ?? 1;
+        const result = await this.wakeups.event("orientation", { focus: orientation.focus ?? undefined, part });
         // Done (or tried and failed on the model's side): no longer waiting.
         // Stopped by a rule (quiet hours, the cooldown): it waits. (One
         // asked for during it is kept for later.)
         if (result.outcome !== null && pendingOrientation(this.store)?.at === orientation.at) this.store.appState.set(PENDING, null);
         this.store.appState.set(HELD, result.outcome === null ? result.detail : null);
+        // A message written in the first part is saved when that turn ends,
+        // so editing it takes a second, short part.
+        if (part === 1 && result.outcome === "posted" && result.messages.length > 0 && !pendingOrientation(this.store)) {
+          queueOrientation(this.store, orientation.focus ?? undefined, 2);
+        }
         return result;
       }
       // The first look back is a week after the journal starts being kept here.
