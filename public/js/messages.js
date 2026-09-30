@@ -77,9 +77,10 @@ export async function refreshMessages(onAbandon) {
   const channelId = state.channelId;
   if (!channelId) return;
   try {
-    const { messages } = await api("GET", channelPath("messages", channelId));
+    const { messages, flags } = await api("GET", channelPath("messages", channelId));
     if (state.channelId !== channelId) return;
     state.messages = messages;
+    if (flags) state.flags = flags;
     onAbandon?.(messages);
   } catch (error) {
     showError(`Couldn't reload this channel: ${error.message}`, () => refreshMessages());
@@ -356,6 +357,10 @@ function acceptTurn(data) {
     refreshNotebook().catch(() => {});
     // Your friend may have commented on messages.
     if (data.toolCalls.some((c) => c.name.includes("comment"))) refreshThreads().catch(() => {});
+    // …or marked, flagged, or posted something here mid-turn (a draft).
+    if (data.toolCalls.some((c) => ["mark_my_voice", "flag_not_me", "post_draft"].includes(c.name))) {
+      refreshMessages().then(renderMessages).catch(() => {});
+    }
   }
 }
 
@@ -662,7 +667,24 @@ function renderMessage(message, { continued = false, regenerate: showRegenerate 
   content.innerHTML = formatText(message.content);
   const threads = threadsOn(message.id);
   highlightThreads(content, threads);
+  // Marked by your friend as sounding like them (mark_my_voice): a small ♪ at
+  // the end of the text, so it shows on continued messages too.
+  if (state.flags?.voice?.includes(message.id)) {
+    const voice = document.createElement("span");
+    voice.className = "message-voice";
+    voice.textContent = " ♪";
+    voice.title = `${state.settings.friendName} marked this as sounding like them`;
+    content.append(voice);
+  }
   root.append(content);
+  // Your friend's own word on this post: it didn't sound like them (flag_not_me).
+  const notMe = state.flags?.notMe?.[message.id];
+  if (notMe) {
+    const flag = document.createElement("p");
+    flag.className = "message-flag";
+    flag.textContent = `🚩 ${state.settings.friendName}: this doesn't sound like me. “${notMe.note}”${notMe.profile ? ` (written by ${notMe.profile})` : ""}`;
+    root.append(flag);
+  }
   if (message.attachments?.length) root.append(renderAttachments(message));
   if (message.reactions?.length && !pending) root.append(renderReactions(message));
 

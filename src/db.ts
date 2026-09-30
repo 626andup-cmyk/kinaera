@@ -679,6 +679,45 @@ export const MIGRATIONS: Migration[] = [
   ALTER TABLE channels ADD COLUMN paused_reason TEXT;
   ALTER TABLE channels ADD COLUMN paused_at TEXT;
   `,
+
+  // ---------------------------------------------------------------- 6
+  // Rebuild stage 6: continuity and self-knowledge. Posts your friend
+  // marked as sounding like them (voice anchors), posts that didn't ("not
+  // me"), their notes on each profile, and the weekly wellbeing reading.
+  `
+  CREATE TABLE voice_marks (
+    message_id TEXT PRIMARY KEY REFERENCES messages (id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE not_me (
+    message_id TEXT PRIMARY KEY REFERENCES messages (id) ON DELETE CASCADE,
+    note       TEXT NOT NULL,
+    -- The profile that wrote it, as it was called then.
+    profile    TEXT,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE profile_notes (
+    profile_id TEXT PRIMARY KEY REFERENCES profiles (id) ON DELETE CASCADE,
+    note       TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE wellbeing (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- The week read: from and to (ISO).
+    since      TEXT NOT NULL,
+    until      TEXT NOT NULL,
+    -- 'yes', 'no', 'unsure', or null (no reading: nothing to read, or Jev failed).
+    verdict    TEXT,
+    -- Each phrasing's probability of yes (JSON).
+    yes        TEXT NOT NULL DEFAULT '[]',
+    messages   INTEGER NOT NULL,
+    error      TEXT,
+    created_at TEXT NOT NULL
+  );
+  `,
 ];
 
 /**

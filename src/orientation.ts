@@ -23,7 +23,9 @@
  * double texts" (at most one) or "never mid-conversation", since they message no one.
  */
 
+import type { Decider } from "./jev.ts";
 import type { Store } from "./store.ts";
+import { takeReading, WELLBEING_DAYS } from "./wellbeing.ts";
 import type { WakeResult, Wakeups } from "./wakeups.ts";
 import { wording } from "./wording.ts";
 
@@ -31,6 +33,7 @@ import { wording } from "./wording.ts";
 const PENDING = "orientation.pending";
 const INVITED = "orientation.invited";
 const LOOKBACK_LAST = "lookback.last";
+const WELLBEING_LAST = "wellbeing.last";
 /** Why the waiting orientation hasn't started yet (a hard rule), for the friend page. */
 const HELD = "orientation.held";
 
@@ -152,6 +155,11 @@ export function orientationGuide(tools: string[], focus: string | null, part: 1 
     .join("\n\n");
 }
 
+/** When the next wellbeing reading is due, and taking it. */
+function due(last: string | null, now: Date, days: number): boolean {
+  return last !== null && now.getTime() - new Date(last).getTime() >= days * 86_400_000;
+}
+
 /** Queues the look back and runs what's due (orientation, scheduled wake-ups, the look back), every minute. */
 export class Rhythms {
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -161,6 +169,8 @@ export class Rhythms {
     private readonly store: Store,
     private readonly wakeups: Wakeups,
     private readonly now: () => Date = () => new Date(),
+    /** Jev, for the weekly wellbeing reading (set up after this, by the server). */
+    private readonly decider: () => Decider | null = () => null,
   ) {}
 
   start(checkMs = 60_000): void {
@@ -172,6 +182,20 @@ export class Rhythms {
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+  }
+
+  /** Take the week's wellbeing reading if one is due (the first a week after this version starts). */
+  private async wellbeingIfDue(): Promise<void> {
+    const now = this.now();
+    const last = this.store.appState.get(WELLBEING_LAST);
+    if (!last) {
+      this.store.appState.set(WELLBEING_LAST, now.toISOString());
+      return;
+    }
+    if (!due(last, now, WELLBEING_DAYS)) return;
+    this.store.appState.set(WELLBEING_LAST, now.toISOString());
+    const reading = await takeReading(this.store, this.decider(), new Date(last), now);
+    console.log(`[wellbeing] weekly reading: ${reading.verdict ?? `none (${reading.error})`}`);
   }
 
   /** Start what's due: a queued orientation, then a wake-up they scheduled, then the look back. Never throws. */
@@ -203,6 +227,10 @@ export class Rhythms {
         if (result.outcome !== null) this.store.schedule.markDone(scheduled.id);
         return result;
       }
+      // The weekly wellbeing reading (src/wellbeing.ts), before the look
+      // back, which shows it. It costs one Jev call; nothing else waits on it.
+      await this.wellbeingIfDue();
+
       // The first look back is a week after the journal starts being kept here.
       const last = this.store.appState.get(LOOKBACK_LAST);
       if (!last) {

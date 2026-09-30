@@ -26,6 +26,7 @@ import { friendCharacterNames, pickProfile, profileRequest, promptManifest } fro
 import { replyToMessages } from "./posts.ts";
 import { localTime } from "./schedule.ts";
 import { draftId } from "./drafts.ts";
+import { MIRROR_DEFAULT, MIRROR_MAX, readPatterns } from "./mirror.ts";
 import { queueOrientation } from "./orientation.ts";
 import { VERBATIM_SLOTS } from "./verbatim.ts";
 import { ASK_KIND_NAMES, ASK_KINDS, type AskKind } from "./inbox.ts";
@@ -57,6 +58,8 @@ export interface ToolContext {
   /** The model writing this turn, for messages posted in other channels. */
   model?: string;
   profileName?: string;
+  /** The profile writing this turn (for write_profile_note). */
+  profileId?: string;
   /** Whether your friend is already writing in a channel (another turn). */
   isBusy?: (channelId: string) => boolean;
   /** Told about messages posted in another channel (a phone notification, if the app isn't open). */
@@ -1466,6 +1469,110 @@ OWN.push(
       if (!channel.paused) throw new ToolError(`${hash(channel)} isn't paused.`);
       ctx.store.setPaused(channel.id, null);
       return { result: { resumed: hash(channel) }, summary: `picked the storyline in ${hash(channel)} back up` };
+    },
+  },
+);
+
+// ------------------------------------------------ staying yourself
+
+/** The tool context for another channel, when a tool takes one ("here" by default). */
+const inChannel = (ctx: ToolContext, name: string | undefined): ToolContext => ({ ...ctx, channel: findChannel(ctx, name) });
+
+OWN.push(
+  {
+    name: "mark_my_voice",
+    description:
+      "Mark one of your posts as sounding like you, by quoting a few words from it. Marked posts are shown to you first as reminders of your voice, whichever model is writing. Set unmark to take a mark back.",
+    parameters: object({
+      quote: str("A few words copied exactly from your post."),
+      channel: str("Optional: the channel it's in, like #story. Leave out for this one."),
+      unmark: { type: "boolean", description: "Optional: true to take the mark back." },
+    }, ["quote"]),
+    run: (ctx, args) => {
+      const message = findMessage(inChannel(ctx, maybe(args, "channel")), need(args, "quote"), true);
+      const unmark = args.unmark === true;
+      ctx.store.continuity.markVoice(message.id, !unmark);
+      return { result: { marked: !unmark }, summary: unmark ? `took back their voice mark on "${snip(message.content)}"` : `marked "${snip(message.content)}" as sounding like them` };
+    },
+  },
+  {
+    name: "flag_not_me",
+    description:
+      "Flag one of your posts that didn't sound like you, with a note on why. The user sees your note on that message, with the profile that wrote it, and it's never used as a reminder of your voice. An empty note takes the flag back.",
+    parameters: object({
+      quote: str("A few words copied exactly from the post."),
+      note: str("What didn't sound like you."),
+      channel: str("Optional: the channel it's in, like #story. Leave out for this one."),
+    }, ["quote", "note"]),
+    run: (ctx, args) => {
+      const message = findMessage(inChannel(ctx, maybe(args, "channel")), need(args, "quote"), true);
+      const note = String(args.note ?? "").trim();
+      ctx.store.continuity.flagNotMe(message, note || null);
+      return {
+        result: { flagged: Boolean(note), ...(message.profile ? { written_by_profile: message.profile } : {}) },
+        summary: note ? `flagged "${snip(message.content)}" as not sounding like them` : `took back their "not me" flag on "${snip(message.content)}"`,
+      };
+    },
+  },
+  {
+    name: "write_profile_note",
+    description:
+      "Keep a short note on how writing with a profile feels (the one writing this turn, unless you name another). Your note on a profile is shown to you whenever it writes. An empty note removes it.",
+    parameters: object({ note: str("Your note."), profile: str("Optional: the profile's name. Leave out for this one.") }, ["note"]),
+    run: (ctx, args) => {
+      const name = maybe(args, "profile");
+      const profiles = ctx.store.profiles.list();
+      const profile = name ? profiles.find((p) => p.name.toLowerCase() === name.trim().toLowerCase()) : profiles.find((p) => p.id === ctx.profileId);
+      if (!profile) throw new ToolError(name ? `There's no profile called "${name}". Profiles: ${profiles.map((p) => p.name).join(", ")}.` : "Name the profile.");
+      ctx.store.continuity.writeProfileNote(profile.id, String(args.note ?? ""));
+      return { result: { saved: true, profile: profile.name }, summary: `wrote a note on the profile "${profile.name}"` };
+    },
+  },
+  {
+    name: "read_profile_notes",
+    description: "Read your notes on every profile, and which profiles there are.",
+    parameters: object({}),
+    run: ({ store, profileId }) => {
+      const notes = store.continuity.profileNotes();
+      return {
+        result: store.profiles.list().map((p) => ({
+          profile: p.name,
+          ...(p.id === profileId ? { writing_now: true } : {}),
+          note: notes.get(p.id)?.note ?? null,
+        })),
+        summary: "read their profile notes",
+      };
+    },
+  },
+
+  // ------------------------------------------------------------ the mirror
+  {
+    name: "read_my_patterns",
+    description:
+      "The mirror: counts from your own recent posts, with no model involved. Openings and closings you reuse, phrases that recur across posts, how long your sentences and paragraphs run, and words you use far more than everyone else. It's never shown to you unasked; what it means, if anything, is yours to decide.",
+    parameters: object({
+      scope: { type: "string", enum: ["channel", "all"], description: '"channel" (this one, the default) or "all" your channels.' },
+      last: { type: "integer", description: `How many of your newest posts (default ${MIRROR_DEFAULT}, at most ${MIRROR_MAX}).` },
+    }),
+    run: (ctx, args) => {
+      const scope = args.scope === "all" ? "all" : "channel";
+      const last = args.last === undefined || args.last === null ? MIRROR_DEFAULT : wholeNumber(args.last, "last");
+      return { result: readPatterns(ctx.store, ctx.channel, scope, last), summary: `read their patterns (${scope === "all" ? "all channels" : hash(ctx.channel)})` };
+    },
+  },
+  {
+    name: "keep_pattern_note",
+    description:
+      'Keep a finding from the mirror on your self-page, under "What my writing shows", in your own words, optionally linked to posts that show it (quote a few words from each, in this channel).',
+    parameters: object({
+      note: str("The finding, in your words."),
+      quotes: { type: "array", items: { type: "string" }, description: "Optional: a few words from each post that shows it." },
+    }, ["note"]),
+    run: (ctx, args) => {
+      const quotes = Array.isArray(args.quotes) ? args.quotes.filter((q): q is string => typeof q === "string") : [];
+      const ids = quotes.map((q) => findMessage(ctx, q, true).id);
+      ctx.store.selfPage.keepPattern(need(args, "note"), ids);
+      return { result: { kept: true }, summary: "kept a pattern note on their self-page" };
     },
   },
 );

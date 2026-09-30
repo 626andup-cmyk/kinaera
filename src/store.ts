@@ -33,6 +33,8 @@ import { SelfPage } from "./selfpage.ts";
 import { Verbatim } from "./verbatim.ts";
 import { Schedule } from "./schedule.ts";
 import { Drafts } from "./drafts.ts";
+import { Continuity } from "./continuity.ts";
+import { Wellbeing } from "./wellbeing.ts";
 import { queueOrientation } from "./orientation.ts";
 import { parseSections } from "./wording.ts";
 import type {
@@ -547,6 +549,10 @@ export class Store {
   readonly schedule: Schedule;
   /** Your friend's private drafts (stage 5). */
   readonly drafts: Drafts;
+  /** Voice marks, "not me" flags and profile notes (stage 6, src/continuity.ts). */
+  readonly continuity: Continuity;
+  /** The weekly wellbeing readings (stage 6, src/wellbeing.ts). */
+  readonly wellbeing: Wellbeing;
   /** Your friend's recent wake-ups, and what came of them (see `src/wakeups.ts`). */
   readonly wakeLog: WakeLog;
   /**
@@ -606,6 +612,8 @@ export class Store {
     this.verbatim = new Verbatim(this.db);
     this.schedule = new Schedule(this.db);
     this.drafts = new Drafts(this.db);
+    this.continuity = new Continuity(this.db);
+    this.wellbeing = new Wellbeing(this.db);
 
     if (isNew) {
       this.seed(options.example ?? true);

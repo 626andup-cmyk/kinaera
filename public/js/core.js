@@ -34,6 +34,8 @@ export const state = {
    * the bottom of the sidebar. You can read it, not write in it.
    */
   practice: null,
+  /** The open channel's voice marks and "not me" flags: {voice: [ids], notMe: {id: {note, profile}}}. */
+  flags: { voice: [], notMe: {} },
   /** Your suggestions for their identity and self-page still waiting for them: {identity, selfNotes}. */
   waiting: { identity: [], selfNotes: [] },
   /** Channel categories, in sidebar order: {id, name, position, collapsed}. */

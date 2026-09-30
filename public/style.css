@@ -773,6 +773,7 @@ textarea {
   display: flex;
   gap: 12px;
   margin-top: 2px;
+  grid-column: 2;
 }
 
 .message-actions button,
@@ -2679,4 +2680,19 @@ button.attach-chip {
   background: var(--input-bg);
   color: var(--text-muted);
   font-size: 14px;
+}
+
+/* Your friend's own word on a post: "not me" (flag_not_me), or sounds like them (mark_my_voice). */
+.message-flag {
+  /* Beside the avatar, like the text: an extra row mustn't push the buttons under it. */
+  grid-column: 2;
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.message-voice {
+  color: var(--text-muted);
+  font-size: 12px;
 }

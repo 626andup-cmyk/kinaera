@@ -64,13 +64,14 @@ export async function openChannel(channelId) {
 
   if (channelId) {
     try {
-      const { messages, toolCalls, threads, summaries } = await api("GET", channelPath("messages", channelId));
+      const { messages, toolCalls, threads, summaries, flags } = await api("GET", channelPath("messages", channelId));
       // Ignore the answer if you switched again while it was loading.
       if (state.channelId !== channelId) return;
       state.messages = messages;
       state.toolCalls = toolCalls;
       state.threads = threads;
       state.summaries = summaries;
+      state.flags = flags ?? { voice: [], notMe: {} };
     } catch (error) {
       showError(`Couldn't load this channel: ${error.message}`, () => openChannel(channelId));
     }

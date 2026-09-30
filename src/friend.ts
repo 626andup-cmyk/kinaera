@@ -45,6 +45,7 @@ import { channelSummaryText, splitScenes, windowStart, type SeqMessage } from ".
 import { splitTexts } from "./texting.ts";
 import { VERBATIM_SLOTS } from "./verbatim.ts";
 import { localTime } from "./schedule.ts";
+import { voiceAnchors } from "./continuity.ts";
 import { wording } from "./wording.ts";
 import type { Store } from "./store.ts";
 import { extractTextToolCalls, parseArguments, type ParsedCall } from "./toolcalls.ts";
@@ -245,6 +246,9 @@ export function promptForChannel(store: Store, channelId: string, options: Promp
       now: localTime(new Date()),
       waiting: store.schedule.waiting().map((w) => ({ id: w.id, at: w.at, note: w.note, channel: channelName(w.channelId) })),
     },
+    // Never the messages already here, nor ones this turn replaces (a regeneration).
+    anchors: voiceAnchors(store, channel, new Set([...window.map((m) => m.id), ...excluded])),
+    profileNote: profileNoteFor(store, options.profile),
     // Private, like the journal: the preview shows that they're there, not what they're called.
     drafts: store.drafts.all().map((d) => ({
       id: d.id,
@@ -253,6 +257,13 @@ export function promptForChannel(store: Store, channelId: string, options: Promp
       updatedAt: d.updatedAt,
     })),
   });
+}
+
+/** Their note on the profile writing this turn, if they wrote one. */
+function profileNoteFor(store: Store, profile: Profile | undefined): { profile: string; note: string } | undefined {
+  if (!profile) return undefined;
+  const note = store.continuity.profileNotes().get(profile.id);
+  return note ? { profile: profile.name, note: note.note } : undefined;
 }
 
 /**
@@ -603,6 +614,7 @@ export class Friend {
         wake: options.wake?.reason,
         model: profile.model,
         profileName: profile.name,
+        profileId: profile.id,
         isBusy: (id) => this.isBusy(id),
         onPosted: (where, messages) => this.onPostedElsewhere?.(where, messages),
       };

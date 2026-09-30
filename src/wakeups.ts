@@ -49,6 +49,8 @@ import type { Store } from "./store.ts";
 import { splitScenes } from "./summaries.ts";
 import type { Channel, Message } from "./types.ts";
 import { invited, orientationGuide, pendingOrientation } from "./orientation.ts";
+import { describeReading, describeTrend } from "./wellbeing.ts";
+import { wording } from "./wording.ts";
 import { toolSpecs } from "./tools.ts";
 
 /** What can wake your friend up from outside. */
@@ -401,6 +403,13 @@ export function wakeContext(store: Store, reason: WakeReason, sinceMs: number | 
   if (reason === "lookback") {
     const since = detail.since ?? new Date(Date.now() - 7 * 86_400_000).toISOString();
     context.lookback = store.journal.since(since);
+    // This week's wellbeing reading: here, and on their page, nowhere else.
+    const readings = store.wellbeing.recent(6);
+    if (readings[0]) {
+      context.wellbeing = (wording("wellbeing").lookback ?? "")
+        .replace("{reading}", describeReading(readings[0]))
+        .replace("{trend}", describeTrend(readings));
+    }
   }
   if (reason === "scene-ended" && detail.channelId) {
     const channel = store.getChannel(detail.channelId);

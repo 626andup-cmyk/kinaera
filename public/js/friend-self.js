@@ -135,6 +135,44 @@ function renderSelf() {
     "Both are private: only the counts are shown here.",
   ].join(" ");
 
+  // Staying themselves across models: voice marks, and their notes on profiles.
+  $("self-voice").textContent =
+    (page.voiceMarks
+      ? `${friend} marked ${page.voiceMarks} ${page.voiceMarks === 1 ? "post" : "posts"} as sounding like them (♪ on the message).`
+      : `${friend} hasn't marked any posts as sounding like them yet.`) + ` Their notes on each profile:`;
+  const profileNotes = (page.profileNotes ?? []).map((n) => {
+    const item = document.createElement("li");
+    item.className = "self-note";
+    const name = document.createElement("strong");
+    name.textContent = `${n.profile}: `;
+    item.append(name, n.note);
+    return item;
+  });
+  if (profileNotes.length === 0) {
+    const empty = document.createElement("li");
+    empty.className = "self-empty";
+    empty.textContent = "None yet.";
+    profileNotes.push(empty);
+  }
+  $("self-profile-notes").replaceChildren(...profileNotes);
+
+  // The weekly wellbeing reading: a measurement, not a verdict.
+  const readings = page.wellbeing ?? [];
+  const pct = (r) => (r.verdict && r.yes.length ? Math.round((r.yes.reduce((a, b) => a + b, 0) / r.yes.length) * 100) : null);
+  const latest = readings[0];
+  $("self-wellbeing").textContent = latest
+    ? [
+        `Once a week, Jev reads ${friend}'s own out-of-character messages and asks whether they spoke negatively about themselves.`,
+        latest.verdict
+          ? `Latest (${formatTime(latest.createdAt)}): ${latest.verdict}, ${pct(latest)}% yes, from ${latest.messages} message${latest.messages === 1 ? "" : "s"}.`
+          : `Latest (${formatTime(latest.createdAt)}): no reading (${latest.error}).`,
+        readings.length > 1 ? `Recent weeks, oldest first: ${[...readings].reverse().map((r) => (pct(r) === null ? "–" : `${pct(r)}%`)).join(", ")}.` : "",
+        "One reading means little; a trend means more. They see this too, in their weekly look back.",
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : `No reading yet. Once a week, Jev reads ${friend}'s own out-of-character messages and asks whether they spoke negatively about themselves. It shows here and in their weekly look back, nowhere else.`;
+
   // What's coming up: wake-ups they set (times only: the notes are theirs), and the heartbeat.
   const upcoming = (page.upcoming ?? []).map((at) => formatTime(at));
   $("self-upcoming").textContent = [

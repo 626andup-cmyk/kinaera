@@ -131,6 +131,8 @@ export interface WakeContext {
   orientation?: string;
   /** For "scheduled": the wake-up they set themselves (src/schedule.ts). */
   scheduled?: { note: string; setAt: string; dueAt: string };
+  /** For "lookback": this week's wellbeing reading and the trend, in words (src/wellbeing.ts). Never in any other turn. */
+  wellbeing?: string;
   /** For "lookback": this week's journal entries. */
   lookback?: { id: string; content: string; kept: boolean; createdAt: string }[];
 }
@@ -195,11 +197,11 @@ export function describeWake(wake: WakeContext, tools: boolean): string {
   if (wake.reason === "lookback") {
     const words = wording("orientation");
     const entries = wake.lookback ?? [];
-    if (entries.length === 0) return words["lookback-empty"] ?? "";
-    return [
-      words.lookback ?? "",
-      ...entries.map((e) => `[${e.id.slice(0, 6)}] ${e.createdAt.slice(0, 10)}${e.kept ? " (kept)" : ""}\n${e.content}`),
-    ].join("\n\n");
+    const journal =
+      entries.length === 0
+        ? [words["lookback-empty"] ?? ""]
+        : [words.lookback ?? "", ...entries.map((e) => `[${e.id.slice(0, 6)}] ${e.createdAt.slice(0, 10)}${e.kept ? " (kept)" : ""}\n${e.content}`)];
+    return [...journal, wake.wellbeing ?? ""].filter((p) => p.trim()).join("\n\n");
   }
   const since = wake.sinceUser ? `It's been ${wake.sinceUser} since the user last wrote anything.` : "The user hasn't written anything yet.";
   const time = wording("time");
@@ -351,6 +353,10 @@ export interface PromptInput {
   notices?: string[];
   /** The time now (the user's local time, in words) and their waiting wake-ups (src/schedule.ts). */
   schedule?: { now: string; waiting: { id: number; at: string; note: string; channel: string | null }[] };
+  /** Short excerpts of their own earlier writing in this kind of channel (src/continuity.ts). */
+  anchors?: { text: string; channel: string; marked: boolean }[];
+  /** Their own note on the profile writing this turn. */
+  profileNote?: { profile: string; note: string };
   /** Their drafts, by title (src/drafts.ts). Private: the preview replaces the titles. */
   drafts?: { id: string; title: string; channel: string | null; updatedAt: string }[];
 }
@@ -421,6 +427,8 @@ export function buildPromptStack({
   notices,
   schedule,
   drafts,
+  anchors,
+  profileNote,
 }: PromptInput): ChatMessage[] {
   const isRp = channel.kind === "rp";
   const isPractice = channel.kind === "practice";
@@ -447,6 +455,13 @@ export function buildPromptStack({
     // of them (src/selfpage.ts, src/journal.ts).
     { title: "Your self-page (short version)", content: tools ? describeSelfPage(selfPage ?? "") : null },
     { title: "Your journal", content: tools ? describeJournal(journal) : null },
+    // Staying themselves across models (src/continuity.ts): their own
+    // voice, and their note on the profile writing this turn.
+    { title: "Your voice", content: describeAnchors(anchors, tools ?? false) },
+    {
+      title: "This profile",
+      content: profileNote ? `${(wording("continuity")["profile-note"] ?? "").replace("{profile}", profileNote.profile)}\n${profileNote.note}` : null,
+    },
     // Their own time: what time it is, what they've planned, what they're
     // working on (src/schedule.ts, src/drafts.ts).
     { title: "Your time", content: tools ? describeSchedule(schedule) : null },
@@ -598,6 +613,9 @@ export function standingNotes(tools: boolean, roleplay = false): string | null {
     tools ? notes["tools-visible"] : undefined,
     tools ? notes.identity : undefined,
     tools ? notes.journal : undefined,
+    tools ? wording("continuity").standing : undefined,
+    // Honest about the one reading that exists, and where it shows (src/wellbeing.ts).
+    tools ? wording("wellbeing").standing : undefined,
   ].filter((line): line is string =>
     Boolean(line?.trim()),
   );
@@ -622,6 +640,19 @@ export function describeJournal(journal: PromptInput["journal"]): string | null 
   }
   if (lines.length === 0) return "(Nothing yet. write_journal adds an entry.)";
   return lines.join("\n\n");
+}
+
+/** "Your voice": a few excerpts of their own earlier writing, to keep their voice in mind. */
+export function describeAnchors(anchors: PromptInput["anchors"], tools: boolean): string | null {
+  if (!anchors || anchors.length === 0) return null;
+  const words = wording("continuity");
+  return [
+    words.voice ?? "",
+    ...anchors.map((a) => `> ${a.text.replace(/\n+/g, "\n> ")}\n(#${a.channel}${a.marked ? ", marked as sounding like you" : ""})`),
+    tools ? (words["voice-tools"] ?? "") : "",
+  ]
+    .filter((p) => p.trim())
+    .join("\n\n");
 }
 
 /** "Your time": the time now, and the wake-ups they've set (their notes are theirs to see). */

@@ -294,7 +294,7 @@ export function createApp(config: Config): App {
   friend.decider = decider;
   const wakeups = new Wakeups(store, friend, Boolean(config.apiKey));
   const heartbeat = new Heartbeat(store, wakeups);
-  const rhythms = new Rhythms(store, wakeups);
+  const rhythms = new Rhythms(store, wakeups, undefined, () => friend.decider);
   const presence = new Presence();
   const notifier = config.notifier ?? new TermuxNotifier(`http://127.0.0.1:${config.port}`);
   // A wake-up (or heartbeat) wrote to you while the app isn't on screen: a
@@ -357,6 +357,16 @@ export function createApp(config: Config): App {
     return store.listChannels().map(channelView);
   }
 
+  /** A channel's voice marks and "not me" flags, by message id. */
+  function channelFlags(channelId: string) {
+    const ids = new Set(store.getMessages(channelId).map((m) => m.id));
+    const marks = [...store.continuity.voiceMarks()].filter((id) => ids.has(id));
+    const notMe = Object.fromEntries(
+      [...store.continuity.notMe()].filter(([id]) => ids.has(id)).map(([id, f]) => [id, { note: f.note, profile: f.profile }]),
+    );
+    return { voice: marks, notMe };
+  }
+
   /** The practice channel, with the sample notes pinned to it. */
   function practiceView(): ChannelView | null {
     const channel = store.practiceChannel();
@@ -383,6 +393,14 @@ export function createApp(config: Config): App {
       // Wake-ups they set for themselves: when, not what for (their notes are theirs).
       upcoming: store.schedule.waiting().map((w) => w.at),
       nextHeartbeat: heartbeat.nextAt()?.toISOString() ?? null,
+      // The weekly wellbeing reading (src/wellbeing.ts): shown here and in their look back only.
+      wellbeing: store.wellbeing.recent(8),
+      // Their notes on each profile (src/continuity.ts).
+      profileNotes: (() => {
+        const notes = store.continuity.profileNotes();
+        return store.profiles.list().flatMap((p) => (notes.has(p.id) ? [{ profile: p.name, note: notes.get(p.id)!.note }] : []));
+      })(),
+      voiceMarks: store.continuity.voiceMarks().size,
       orientation: orientationState(),
       waiting: waitingOnFriend(),
     };
@@ -730,6 +748,8 @@ export function createApp(config: Config): App {
           threads: store.comments.forChannel(id!),
           // Scene summaries (shown under scene breaks), the story so far, and more.
           summaries: summarizer.view(id!),
+          // Posts your friend marked as sounding like them, or flagged "not me" (src/continuity.ts).
+          flags: channelFlags(id!),
         }),
     },
 
