@@ -350,6 +350,15 @@ describe("orientation", () => {
     expect(await rhythms.tick()).toMatchObject({ reason: "orientation", outcome: "posted" });
     const state = (await call("GET", "/api/friend-page")).data.orientation;
     expect(state).toMatchObject({ held: null, last: { outcome: "posted" } });
+    // Asked for again straight away: held by the cooldown, with when it can start.
+    await run("start_orientation", {});
+    await rhythms.tick();
+    const held = (await call("GET", "/api/friend-page")).data.orientation;
+    expect(held.held).toBe("It's too soon after their last turn of their own.");
+    // The page gives the time it can start (the server's clock is real time).
+    app.store.wakeLog.add({ at: new Date().toISOString(), reason: "orientation", outcome: "quiet", channelId: practice().id, detail: "" });
+    const until = new Date((await call("GET", "/api/friend-page")).data.orientation.heldUntil).getTime();
+    expect(until - Date.now()).toBeGreaterThan(55 * 60_000);
   });
 
   test("the weekly look back shows the week's journal", async () => {

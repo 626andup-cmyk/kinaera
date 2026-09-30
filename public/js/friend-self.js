@@ -145,6 +145,8 @@ function renderOrientation() {
   else if (o.pending) {
     lines.push(`${friend} is starting an orientation in #practice. It's checked every minute.`);
     if (o.held) lines.push(`Not yet, because: ${o.held}`);
+    // The cooldown (Settings → Your friend reaching out) ends at a known time.
+    if (o.heldUntil) lines.push(`It can start around ${formatTime(o.heldUntil)}. A shorter cooldown in Settings makes that sooner.`);
   } else if (o.invited) {
     lines.push(`You've invited ${friend}, and they haven't answered yet. Starting one is a yes; not starting one on the turn where they're told is a no.`);
   } else {

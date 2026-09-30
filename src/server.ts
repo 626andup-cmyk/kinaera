@@ -391,7 +391,11 @@ export function createApp(config: Config): App {
   function orientationState() {
     const practice = store.practiceChannel();
     const last = store.wakeLog.recent(300).find((w) => w.reason === "orientation") ?? null;
+    // When the cooldown lets a waiting one start (from their last turn of their own).
+    const lastOwn = store.wakeLog.lastTurnAt(["orientation", "lookback"]);
+    const cooldownEnds = lastOwn ? new Date(lastOwn.getTime() + store.getSettings().wakeCooldownMinutes * 60_000) : null;
     return {
+      heldUntil: pendingOrientation(store) && cooldownEnds && cooldownEnds > new Date() ? cooldownEnds.toISOString() : null,
       invited: invited(store),
       pending: pendingOrientation(store) !== null,
       held: orientationHeld(store),
