@@ -2740,3 +2740,21 @@ button.attach-chip {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Group channels and DMs: the "Together" part of the sidebar, and picking friends for one. */
+.together-section {
+  margin-top: 8px;
+}
+
+.group-friends {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 8px;
+}
+
+.group-friends .avatar {
+  width: 22px;
+  height: 22px;
+  font-size: 11px;
+}

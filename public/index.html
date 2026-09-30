@@ -904,6 +904,23 @@
         <div class="memory-buttons">
           <button type="button" class="button" id="server-add-friend">Add a friend here…</button>
         </div>
+
+        <label>Group channels and DMs</label>
+        <p class="hint">
+          A group channel is you and several friends: when you write, each may take a turn. A DM is two friends, on
+          their own time; you choose whether you can read it (both are told).
+        </p>
+        <ul id="server-group-list" class="server-friend-list"></ul>
+        <details id="new-group" class="self-suggest">
+          <summary>New group channel</summary>
+          <label for="group-name">Name</label>
+          <input id="group-name" autocomplete="off" maxlength="100" placeholder="lounge" />
+          <div id="group-friends" class="group-friends"></div>
+          <div class="dialog-buttons">
+            <span class="spacer"></span>
+            <button type="button" class="button button-primary" id="create-group">Make it</button>
+          </div>
+        </details>
         <p class="form-error" role="alert" hidden></p>
         <div class="dialog-buttons">
           <button type="button" class="button button-danger" id="server-delete">Delete server…</button>

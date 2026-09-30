@@ -18,6 +18,7 @@ import { openReactionPicker, renderReactions } from "./reactions.js";
 import { assignmentName } from "./settings.js";
 import { renderSceneSummary, toggleSceneSummary } from "./summaries.js";
 import { finishReveal, revealLater, sendText } from "./texting.js";
+import { isShared, paintPeer } from "./groups.js";
 import { showNotice } from "./themes.js";
 
 // ------------------------------------------------------ messages & turns
@@ -474,7 +475,8 @@ export function renderMessages() {
   // The last friend turn can be regenerated. In casual mode that's every
   // bubble of the last reply; the button goes on the last one.
   const last = state.messages.at(-1);
-  const canRegenerate = last?.kind === "post" && last.author === "friend";
+  // Not in a group channel or DM: the others have already seen it.
+  const canRegenerate = last?.kind === "post" && last.author === "friend" && !isShared(currentChannel());
 
   let previous = null;
   state.messages.forEach((message, index) => {
@@ -512,6 +514,8 @@ function continuesGroup(previous, message) {
   if (!previous || previous.kind !== "post" || message.mode === "literary") return false;
   const sameVoice =
     previous.author === message.author &&
+    // Two other friends in a row are two people.
+    previous.speaker?.id === message.speaker?.id &&
     previous.mode === message.mode &&
     previous.characters.join("|") === message.characters.join("|");
   const minutesApart = (new Date(message.createdAt) - new Date(previous.createdAt)) / 60000;
@@ -611,7 +615,7 @@ function renderReplyPreview(message) {
 }
 
 function authorOf(message) {
-  const writer = message.author === "user" ? "You" : state.settings.friendName;
+  const writer = message.author === "user" ? "You" : message.author === "peer" ? (message.speaker?.name ?? "A friend") : state.settings.friendName;
   if (message.characters.length > 0) return { name: message.characters.join(" & "), badge: writer };
   return { name: writer, badge: null };
 }
@@ -656,6 +660,9 @@ function renderMessage(message, { continued = false, regenerate: showRegenerate 
   if (message.characters.length > 0) {
     root.classList.add("has-character");
     root.style.setProperty("--avatar-hue", String(hueFor(name)));
+  } else if (message.author === "peer") {
+    // Another friend (a group channel or DM): their face and colour.
+    paintPeer(avatar, root, message);
   } else if (message.author === "friend") {
     // Your friend as themselves: their avatar and colour (the Friend menu).
     if (state.settings.friendAvatar) avatar.textContent = state.settings.friendAvatar;

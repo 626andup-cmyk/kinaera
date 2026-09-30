@@ -12,8 +12,11 @@ export function renderComposer() {
   const channel = currentChannel();
   els.composer.hidden = !channel;
   if (!channel) return;
-  // Their practice channel is theirs to write in: you can only read it.
-  $("composer-form").hidden = channel.kind === "practice";
+  // Their practice channel is theirs to write in, and a DM is theirs
+  // together: you can only read them.
+  $("composer-form").hidden = channel.kind === "practice" || channel.kind === "dm";
+  // In a group channel, your message starts a round: nobody takes a turn on their own from here.
+  els.turn.hidden = channel.kind === "group";
   // A reply you started belongs to its channel: leaving it drops the reply.
   if (state.replyingTo && state.replyingTo.channelId !== channel.id) state.replyingTo = null;
   if (!state.replyingTo) $("reply-bar").hidden = true;
@@ -42,6 +45,8 @@ export function renderComposer() {
 
   if (channel.kind === "ooc") {
     els.input.placeholder = `Message ${state.settings.friendName}…`;
+  } else if (channel.kind === "group") {
+    els.input.placeholder = `Message #${channel.name}…`;
   } else if (casual) {
     const example = yourCharacters().find((c) => c.proxyPrefix);
     els.input.placeholder = example

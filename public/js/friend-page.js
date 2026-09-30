@@ -8,6 +8,7 @@ import { channelIcon, parseAddress, renderAll } from "./channels.js";
 import { $, api, els, hideFormError, readLocal, showFormError, state, writeLocal } from "./core.js";
 import { initial } from "./format.js";
 import { seenMessages } from "./live.js";
+import { createGroup, renderServerGroups } from "./groups.js";
 
 // ------------------------------------------------------ friends and servers
 
@@ -352,6 +353,7 @@ function openServerSettings() {
     }),
   );
   $("server-delete").hidden = state.hub.length < 2;
+  renderServerGroups(server);
   hideFormError($("server-form"));
   $("server-dialog").showModal();
 }
@@ -398,6 +400,7 @@ $("new-friend-surprise").addEventListener("click", surpriseNewFriend);
 $("server-name").addEventListener("click", openServerSettings);
 $("server-form").addEventListener("submit", saveServer);
 $("server-delete").addEventListener("click", deleteServer);
+$("create-group").addEventListener("click", () => createGroup(currentServer().id));
 $("server-add-friend").addEventListener("click", () => {
   $("server-dialog").close();
   openNewFriend(currentServer().id);

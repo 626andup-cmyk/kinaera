@@ -21,6 +21,7 @@ import {
   state,
 } from "./core.js";
 import { otherFriendItems, paintAvatar, renderRail } from "./friend-page.js";
+import { groupItems, groupTopic, isShared } from "./groups.js";
 import { renderInboxBadge } from "./inbox.js";
 import { isUnread, loadState, markSeen } from "./live.js";
 import { currentSceneIsEmpty, friendTurn, renderMessages, scrollToBottom } from "./messages.js";
@@ -214,7 +215,7 @@ export function renderSidebar() {
   if (state.practice) items.push(renderPracticeItem(state.practice));
   // Other friends in this server: their channels, under their names.
   const others = otherFriendItems();
-  els.channelList.replaceChildren(...others.before, ...(others.header ? [others.header] : []), ...items, ...others.after);
+  els.channelList.replaceChildren(...groupItems(), ...others.before, ...(others.header ? [others.header] : []), ...items, ...others.after);
 
   // The indicator goes back in after the links, and moves to the open one.
   els.channelList.append(els.channelIndicator);
@@ -320,7 +321,8 @@ function renderCategoryHeader(category, channels) {
  */
 function sidebarGroups() {
   const known = new Set(state.categories.map((c) => c.id));
-  const ordered = [...state.channels].sort((a, b) => a.position - b.position);
+  // Group channels and DMs are listed with the server ("Together"), not here.
+  const ordered = state.channels.filter((c) => !isShared(c)).sort((a, b) => a.position - b.position);
   const group = (id) => ordered.filter((c) => (known.has(c.categoryId) ? c.categoryId : null) === id);
   return [{ category: null, channels: group(null) }, ...state.categories.map((category) => ({ category, channels: group(category.id) }))];
 }
@@ -640,6 +642,7 @@ function renderChannelHeader() {
 function channelTopic(channel) {
   const friendName = state.settings.friendName;
   if (channel.kind === "ooc") return `Out of character with ${friendName}`;
+  if (isShared(channel)) return groupTopic(channel);
   if (channel.kind === "practice") return `${friendName}'s own channel, for trying things out. You can read it; nothing here feeds anything else.`;
   const parts = [];
   const theirs = castNames(channel, "friend");
