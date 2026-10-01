@@ -1288,6 +1288,9 @@ export class Store {
   }
 }
 
+/** Set by a fresh start (src/fresh.ts): the app asks you to make your new friend first. */
+export const SETUP_PENDING = "setup.pending";
+
 /** A group channel or DM: kept by several friends, under the same id (src/groups.ts). */
 export function isShared(channel: Pick<Channel, "kind">): boolean {
   return channel.kind === "group" || channel.kind === "dm";

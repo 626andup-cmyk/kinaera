@@ -863,6 +863,49 @@
       </form>
     </dialog>
 
+    <!-- After a fresh start (bun run fresh): make your new friend (js/setup.js). -->
+    <dialog id="setup-dialog" class="dialog surface">
+      <form id="setup-form" method="dialog">
+        <div class="friend-dialog-head">
+          <div class="avatar friend-avatar" id="setup-avatar-preview" aria-hidden="true">?</div>
+          <h2 class="dialog-title">Meet your new friend</h2>
+        </div>
+        <p class="hint">
+          Who are they? Write them yourself, or roll someone and change whatever you like. Their identity is theirs
+          from the moment they're made, and their first turn of their own is an orientation, to find out what
+          suits them.
+        </p>
+        <div class="grid assignment-grid">
+          <div>
+            <label for="setup-name">Name</label>
+            <input id="setup-name" name="name" autocomplete="off" maxlength="100" required />
+          </div>
+          <div>
+            <label for="setup-avatar">Avatar</label>
+            <input id="setup-avatar" name="avatar" autocomplete="off" maxlength="8" placeholder="An emoji (optional)" />
+          </div>
+        </div>
+        <label for="setup-color">Colour</label>
+        <div class="inline-row">
+          <input id="setup-color" name="color" type="range" min="0" max="359" step="1" value="260" />
+          <label class="check-inline"><input type="checkbox" name="themeColor" checked /> Theme's</label>
+        </div>
+        <label for="setup-prompt">Who they are</label>
+        <textarea id="setup-prompt" name="prompt" rows="6" placeholder="Their personality, how they talk, their taste as a writer, what they're like as a friend. In the second person: &quot;You are…&quot;"></textarea>
+        <label for="setup-tastes">Their tastes</label>
+        <textarea id="setup-tastes" name="tastes" rows="3" placeholder="Optional: what they love, what bores them, what they'd never write. They can write this themselves later."></textarea>
+        <div class="memory-buttons">
+          <button type="button" class="button" id="setup-surprise">🎲 Surprise me</button>
+        </div>
+        <p class="hint" id="setup-surprise-result" role="status"></p>
+        <p class="form-error" role="alert" hidden></p>
+        <div class="dialog-buttons">
+          <span class="spacer"></span>
+          <button type="submit" class="button button-primary" id="setup-create">Meet them</button>
+        </div>
+      </form>
+    </dialog>
+
     <!-- A new friend: in a new server of their own, or in this one. -->
     <dialog id="new-friend-dialog" class="dialog surface">
       <form id="new-friend-form" method="dialog">

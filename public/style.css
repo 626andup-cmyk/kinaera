@@ -503,7 +503,9 @@ textarea {
 
 .message {
   display: grid;
-  grid-template-columns: 40px 1fr;
+  /* minmax(0, …): the text column may shrink below its longest unbreakable
+     run, so nothing inside can push the message wider than its bubble. */
+  grid-template-columns: 40px minmax(0, 1fr);
   gap: 0 12px;
   padding: 8px 16px;
 }
@@ -566,6 +568,7 @@ textarea {
 
 /* pre-wrap keeps the line breaks and blank lines the writer typed. */
 .message-content {
+  min-width: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -771,7 +774,9 @@ textarea {
 /* Edit / delete / regenerate. Always visible (phones have no hover), but quiet. */
 .message-actions {
   display: flex;
-  gap: 12px;
+  /* Many actions (Regenerate with…) wrap onto a second line on a phone. */
+  flex-wrap: wrap;
+  gap: 2px 12px;
   margin-top: 2px;
   grid-column: 2;
 }
@@ -997,6 +1002,23 @@ button:disabled {
   color: var(--text);
 }
 
+/* The dialog stays put; its contents scroll inside it (see main.js). */
+.dialog[open] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dialog-body {
+  min-height: 0;
+  /* Reaches the dialog's edges, so the scrollbar sits at its side and the
+     padding scrolls with the contents. */
+  margin: -20px;
+  padding: 20px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .dialog::backdrop {
   background: var(--scrim);
 }
@@ -1024,6 +1046,8 @@ button:disabled {
 
 .dialog select {
   width: 100%;
+  max-width: 100%;
+  text-overflow: ellipsis;
   padding: 10px 12px;
   border: var(--input-border);
   border-radius: var(--radius-md);
@@ -1056,7 +1080,7 @@ button:disabled {
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   /* Line the inputs up along the bottom even if a label wraps onto two lines. */
   align-items: end;
@@ -1423,7 +1447,7 @@ button:disabled {
 /* One entry in the list: avatar, name, badges. The whole row opens it. */
 .notebook-entry {
   display: grid;
-  grid-template-columns: 32px 1fr;
+  grid-template-columns: 32px minmax(0, 1fr);
   gap: 0 10px;
   align-items: center;
   width: 100%;
@@ -1515,7 +1539,7 @@ button:disabled {
 /* A field: label on the left, value on the right (stacked on phones). */
 .entry-field {
   display: grid;
-  grid-template-columns: minmax(90px, 160px) 1fr auto;
+  grid-template-columns: minmax(90px, 160px) minmax(0, 1fr) auto;
   gap: 6px;
   align-items: start;
   margin-top: 6px;
@@ -1572,12 +1596,12 @@ button:disabled {
 }
 
 .folder-settings-grid {
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 @media (max-width: 599px) {
   .entry-field {
-    grid-template-columns: 1fr auto;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .entry-field-value {
@@ -1587,7 +1611,7 @@ button:disabled {
 
   .entry-settings-grid,
   .folder-settings-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -1659,7 +1683,7 @@ button:disabled {
 }
 
 .assignment-grid {
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .link-button.inline-link {
@@ -1699,7 +1723,7 @@ button:disabled {
 /* A roulette's rows: profile, weight, share, remove. */
 .roulette-entry {
   display: grid;
-  grid-template-columns: 1fr 80px 44px auto;
+  grid-template-columns: minmax(0, 1fr) 80px 44px auto;
   gap: 8px;
   align-items: center;
   margin-top: 6px;
@@ -1713,7 +1737,7 @@ button:disabled {
 
 @media (max-width: 599px) {
   .assignment-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

@@ -1,8 +1,10 @@
 /**
  * A fresh start: `bun run fresh`.
  *
- * Sets every friend's memory aside and starts Kinaera over, with one new
- * friend (Arlo, whose first turn of their own is an orientation). Nothing
+ * Sets every friend's memory aside and starts Kinaera over. The app then
+ * opens on "Meet your new friend": you choose their name, face, who they
+ * are and their tastes (or roll them), and their first turn of their own
+ * is an orientation. Nothing
  * is deleted: the whole data folder is renamed to `data-old-<date>`, so you
  * can go back by stopping Kinaera and renaming it back.
  *
@@ -22,7 +24,7 @@ import { cpSync, existsSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig } from "./config.ts";
 import { copyProfiles, FRIEND_KEYS } from "./hub.ts";
-import { Store } from "./store.ts";
+import { SETUP_PENDING, Store } from "./store.ts";
 import type { Settings } from "./types.ts";
 
 async function main(): Promise<void> {
@@ -55,16 +57,21 @@ async function main(): Promise<void> {
   // then start a new one, with your profiles and preferences.
   old.close();
   renameSync(dataDir, aside);
-  const store = new Store(dataDir);
+  // No example character: you make your new friend yourself, in the app.
+  const store = new Store(dataDir, { example: false });
   const previous = new Database(join(aside, "kinaera.db"), { readonly: true });
   const profiles = previous.query("SELECT COUNT(*) AS n FROM profiles").get() as { n: number };
   copyProfiles(previous, store.db);
   previous.close();
   store.updateSettings(preferences);
+  // The app opens on "Meet your new friend" (name, face, who they are);
+  // their orientation starts once they're made.
+  store.appState.set("orientation.pending", null);
+  store.appState.set(SETUP_PENDING, "1");
   store.close();
   if (existsSync(join(aside, "themes"))) cpSync(join(aside, "themes"), join(dataDir, "themes"), { recursive: true });
 
-  console.log("Done: Kinaera starts fresh, with one new friend (Arlo).");
+  console.log("Done: Kinaera starts fresh. Open the app to make your new friend.");
   console.log(`Kept: your API key, ${profiles.n} connection profile${profiles.n === 1 ? "" : "s"} and roulettes, your preferences and your themes.`);
   console.log(`Everything else is set aside, not deleted, in ${aside}`);
   console.log("When you're sure you won't want it back, you can delete that folder. Now run: bun start");

@@ -132,6 +132,7 @@ import { ENTRY_TEMPLATES } from "./notebook.ts";
 import { rollCommand } from "./dice.ts";
 import { permissionViews, setGrant } from "./standing.ts";
 import {
+  queueOrientation,
   invitationNote,
   invited,
   inviteToOrientation,
@@ -145,6 +146,7 @@ import type { CastMember, Channel, Message, Settings } from "./types.ts";
 import { PermissionError } from "./errors.ts";
 import {
   isShared,
+  SETUP_PENDING,
   NotFoundError,
   Store,
   ValidationError,
@@ -551,6 +553,8 @@ export function createApp(config: Config): App {
           inbox: store.inbox.open(),
           // Your suggestions still waiting for your friend.
           waiting: waitingOnFriend(),
+          // After a fresh start: make your new friend first (POST /api/setup).
+          setup: store.appState.get(SETUP_PENDING) !== null,
           busyChannels: friend.busyChannels(),
           // Presence: writing or reading in each busy channel, and overall
           // (with quiet hours), plus the status they set themselves.
@@ -1156,6 +1160,34 @@ export function createApp(config: Config): App {
       handler: (_request, { id }) => {
         store.comments.delete("user", id!);
         return json({ ok: true });
+      },
+    },
+
+    // ------------------------------------------------------------- setup
+    {
+      // After a fresh start (src/fresh.ts): who your new friend is. Their
+      // identity begins here, and their first turn is an orientation.
+      method: "POST",
+      pattern: "/api/setup",
+      handler: async (request) => {
+        if (store.appState.get(SETUP_PENDING) === null) throw new HttpError(400, "Your friend is already made.");
+        const body = await readObject(request);
+        const tastes = body.tastes === undefined ? "" : body.tastes;
+        if (typeof tastes !== "string") throw new HttpError(400, '"tastes" must be text.');
+        const update = validateSettings({
+          friendName: body.name,
+          ...(body.avatar !== undefined ? { friendAvatar: body.avatar } : {}),
+          ...(body.color !== undefined ? { friendColor: body.color } : {}),
+          friendPrompt: body.prompt,
+        });
+        if (!update.friendName?.trim()) throw new HttpError(400, "Give them a name.");
+        if (!update.friendPrompt?.trim()) throw new HttpError(400, "Write who they are, or roll someone with Surprise me.");
+        store.updateSettings(update);
+        store.identity.begin(update.friendPrompt, tastes);
+        store.appState.set(SETUP_PENDING, null);
+        queueOrientation(store);
+        console.log(`[setup] made ${update.friendName}; their orientation is next`);
+        return json({ settings: store.getSettings() });
       },
     },
 

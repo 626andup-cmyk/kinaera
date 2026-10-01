@@ -28,6 +28,7 @@
  *   themes.js       themes and appearance
  *   friend-page.js  friends, servers and the friend menu
  *   friend-self.js  the friend's page: identity, self-page, orientation
+ *   setup.js        making your new friend, after a fresh start
  */
 
 import {
@@ -57,6 +58,7 @@ import { autoGrow, openAttach, renderAttachList } from "./composer.js";
 import { $, els, hideError, readLocal, showError, state, writeLocal } from "./core.js";
 import { FRIEND_KEY, loadHub, pickFriend, switchFriend } from "./friend-page.js";
 import "./friend-self.js";
+import { maybeOpenSetup } from "./setup.js";
 import { copyCheckLog, openCheckLog, openInterventions } from "./history.js";
 import { openInbox } from "./inbox.js";
 import {
@@ -132,6 +134,18 @@ import {
   uploadThemeFiles,
   watchForStutter,
 } from "./themes.js";
+
+/*
+ * Every dialog scrolls *inside* itself (a `.dialog-body`), not as a whole,
+ * so its glass (the gloss, the rim a theme draws on its edges) always
+ * covers exactly the dialog, however far you scroll.
+ */
+for (const dialog of document.querySelectorAll("dialog.dialog")) {
+  const body = document.createElement("div");
+  body.className = "dialog-body";
+  body.append(...dialog.childNodes);
+  dialog.append(body);
+}
 
 // ------------------------------------------------------------ wiring it up
 
@@ -369,8 +383,11 @@ loadHub()
     // A turn may already be running (from another tab, or from before a
     // reload): keep an eye on it.
     if (state.busy.size > 0) startBusyWatch();
-    // You've opened the app: your friend may wake up (stage 8).
-    sayOpened();
+    // After a fresh start, you make your new friend first (js/setup.js).
+    if (!maybeOpenSetup()) {
+      // You've opened the app: your friend may wake up (stage 8).
+      sayOpened();
+    }
     return openChannel(channelFromAddress() ?? state.channels[0]?.id ?? null);
   })
   .catch((error) => showError(`Couldn't load Kinaera: ${error.message}`, () => location.reload()));

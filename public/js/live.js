@@ -22,6 +22,7 @@ export async function loadState() {
   state.profiles = data.profiles;
   state.roulettes = data.roulettes;
   state.inbox = data.inbox ?? [];
+  state.setup = data.setup === true;
   state.busy = new Set(data.busyChannels);
   state.phases = data.phases ?? {};
   state.presence = data.presence ?? "idle";
