@@ -66,7 +66,9 @@ Every friend has a **practice channel**. It sits apart at the bottom of the side
 - **when you invite them** (their page): inviting gives them a turn soon (like a suggestion to review, if the hard rules allow), where they're told. Calling `start_orientation` then is a yes; not calling it that turn is a no;
 - **when a profile joins a roulette**: they're told once that a new model may be writing as them, and offered an orientation. It isn't started for them.
 
-**How a turn of orientation works.** The whole orientation is one turn. They call tools one after another, with room for 12 rounds instead of the usual 6, and it ends when they stop. They don't have to write a message at all. A message is saved only when a turn ends, so if they write one, a short **second part** follows straight on (no cooldown) where they can try `edit_my_message` on it. The look back gets the same room.
+**What the guide covers.** It opens with a catalog of everything they can do, grouped (knowing things, asking for help, their own things, writing and channels, the notebook, other friends). Only the tools they have that turn are listed (`orientation-catalog` in `defaults/orientation.md`). Then come a few suggestions to try, and the writing steps.
+
+**How a turn of orientation works.** The whole orientation is one turn. They call tools one after another, with room for 16 rounds instead of the usual 6, and it ends when they stop. They don't have to write a message at all. A message is saved only when a turn ends, so if they write one, a short **second part** follows straight on (no cooldown) where they can try `edit_my_message` on it. The look back gets the same room.
 
 Asks made during an orientation are marked "(orientation)" in your inbox. Orientation and the look back are started by a timer (`Rhythms`, checked every minute). They follow quiet hours and the cooldown, but not the double-text limit or "never mid-conversation", because they message no one. Their cooldown counts from their last turn of their own, not from wake-ups that wrote to you, so an orientation doesn't wait an hour behind the turn where they accepted. No phone notification is sent for them.
 

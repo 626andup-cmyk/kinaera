@@ -273,6 +273,19 @@ describe("orientation", () => {
     expect(app.store.inbox.open()[0]).toMatchObject({ orientation: true });
   });
 
+  test("its guide lists everything they can do, and only what they can", async () => {
+    fake.replies.push({ content: "[nothing]" });
+    await rhythms.tick();
+    const guide = JSON.stringify(fake.requests[0]!.messages);
+    for (const tool of ["check", "write_journal", "schedule_wakeup", "save_draft", "mark_my_voice", "roll_dice", "pin_to_channel", "do_nothing"]) {
+      expect(guide).toContain(`- ${tool}`);
+    }
+    expect(guide).toContain("Here is everything you can do");
+    // No consultant profile, and no other friends here: not listed.
+    expect(guide).not.toContain("- consult:");
+    expect(guide).not.toContain("message_friend");
+  });
+
   test("has room to try several tools, one after another", async () => {
     for (let i = 0; i < 9; i++) fake.replies.push({ toolCalls: [{ name: "read_prompt_manifest", arguments: {} }] });
     fake.replies.push({ content: "[nothing]" });

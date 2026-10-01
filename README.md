@@ -93,6 +93,8 @@ Everything else (prompt, model, characters and so on) is changed in the app.
 
 Everything is saved in the `data/` folder. Your first friend's chat and settings are in an SQLite database, `data/kinaera.db`. Each other friend has their own folder, `data/friends/<id>/`. Your own themes are in `data/themes/`, and the list of servers is `data/hub.json` (see [friends and servers](docs/friends.md)). To back up, stop the server and copy the whole `data/` folder. (While the server is running, the database's recent changes are also in `kinaera.db-wal` and `kinaera.db-shm`, so copy those too.) The `data/` folder and `.env` are never committed to git.
 
+**Starting over.** Stop Kinaera, then run `bun run fresh`. Every friend's memory is set aside, not deleted: the `data/` folder is renamed to `data-old-<date>`, and you can go back by renaming it back. You start with one new friend, Arlo, whose first turn of their own is an orientation. Your connection profiles, roulettes, preferences and themes carry over, and your API key is in `.env`, untouched.
+
 Kinaera has no login. Keep `HOST` at `127.0.0.1` so that nobody else on your Wi-Fi can open your chat.
 
 ## Development

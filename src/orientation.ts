@@ -124,6 +124,37 @@ export function noteNewProfiles(store: Store, names: string[]): void {
  * The orientation guide, put together from `defaults/orientation.md`: only
  * the steps whose tools your friend has this turn.
  */
+/**
+ * The catalog of everything they can do, from `orientation-catalog`: each
+ * "- tool, tool: what it's for" line is kept only if they have one of its
+ * tools this turn, and each "### heading" only if it has lines left.
+ */
+export function orientationCatalog(tools: string[], text: string): string {
+  const out: string[] = [];
+  let heading: string | null = null;
+  let lines: string[] = [];
+  const flush = () => {
+    if (heading !== null && lines.length) out.push(`${heading}\n${lines.join("\n")}`);
+    lines = [];
+  };
+  for (const line of text.split("\n")) {
+    if (line.startsWith("### ")) {
+      flush();
+      heading = line.slice(4).trim();
+      continue;
+    }
+    const item = line.match(/^-\s*([a-z_, ]+):\s*(.+)$/);
+    if (item && heading !== null) {
+      const names = item[1]!.split(",").map((n) => n.trim()).filter((n) => tools.includes(n));
+      if (names.length) lines.push(`- ${names.join(", ")}: ${item[2]}`);
+      continue;
+    }
+    if (heading === null && line.trim()) out.push(line.trim());
+  }
+  flush();
+  return out.join("\n\n");
+}
+
 export function orientationGuide(tools: string[], focus: string | null, part: 1 | 2 = 1): string {
   const words = wording("orientation");
   const has = (name: string) => tools.includes(name);
@@ -146,6 +177,8 @@ export function orientationGuide(tools: string[], focus: string | null, part: 1 
   ].filter(Boolean);
   return [
     words["orientation-intro"] ?? "",
+    // Everything they can do, so they know it's there.
+    orientationCatalog(tools, words["orientation-catalog"] ?? ""),
     focus ? (words["orientation-focus"] ?? "").replace("{focus}", focus) : "",
     steps.map((s) => `- ${s}`).join("\n"),
     words["orientation-write"] ?? "",

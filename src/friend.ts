@@ -63,7 +63,7 @@ export const MAX_ROUNDS = 6;
  * Rounds for a turn of their own (orientation, the look back): trying
  * several tools one after another takes more, and it messages no one.
  */
-export const OWN_TIME_ROUNDS = 12;
+export const OWN_TIME_ROUNDS = 16;
 
 /**
  * What caused a turn. Used for the server log. "wake" is a turn on their

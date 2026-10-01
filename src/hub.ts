@@ -35,6 +35,7 @@
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import type { Database } from "bun:sqlite";
 import type { Config } from "./config.ts";
 import { keepAwake } from "./notify.ts";
 import { createApp, type App } from "./server.ts";
@@ -268,7 +269,7 @@ export function createHub(config: Config, makeApp: (config: Config) => App = cre
     const id = `p-${crypto.randomUUID().slice(0, 8)}`;
     const friend: HubFriend = { id, dir: join("friends", id) };
     const app = open(friend);
-    copyProfiles(source, app);
+    copyProfiles(source.store.db, app.store.db);
     const preferences = Object.fromEntries(
       Object.entries(source.store.getSettings()).filter(([key]) => !FRIEND_KEYS.includes(key as keyof Settings)),
     );
@@ -512,9 +513,8 @@ export function createHub(config: Config, makeApp: (config: Config) => App = cre
  * Give a new friend the same connection profiles and roulettes as another
  * (same ids, so assignments carry over), replacing the default one.
  */
-function copyProfiles(from: App, to: App): void {
-  const source = from.store.db;
-  const target = to.store.db;
+/** Copy connection profiles and roulettes from one friend's database to another's (same ids, so assignments carry over). */
+export function copyProfiles(source: Database, target: Database): void {
   const rows = (table: string) => source.query(`SELECT * FROM ${table}`).all() as Record<string, unknown>[];
   const copy = (table: string, list: Record<string, unknown>[]) => {
     for (const row of list) {
