@@ -58,7 +58,7 @@ Migration 9 in `src/db.ts`:
 
 Deleting a document deletes its passages and removes them from the index. Deleting a channel takes it off any document limited to it.
 
-A document can be up to 5,000,000 characters.
+A document can be up to 20,000,000 characters. A **JSON** file (a scraped script, transcripts) is read for its words: each line of dialogue with who says it, scene headings and action, and any other text, without the keys, ids, links and dates around them. The note under the file says how much text was kept.
 
 ## API
 

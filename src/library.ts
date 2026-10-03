@@ -62,8 +62,11 @@ export interface SearchHit {
   snippet: string;
 }
 
-/** The longest document accepted (in characters): a feature-length script is ~200,000. */
-export const MAX_DOC_CHARS = 5_000_000;
+/**
+ * The longest document accepted (in characters): a feature-length script is
+ * ~200,000, so this fits whole series of transcripts.
+ */
+export const MAX_DOC_CHARS = 20_000_000;
 
 /** Aim for passages about this long (characters): roughly a page. */
 export const PASSAGE_TARGET = 1500;

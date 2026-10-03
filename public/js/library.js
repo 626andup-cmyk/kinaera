@@ -88,7 +88,7 @@ export function openLibraryDoc(doc = null) {
   $("library-doc-title").textContent = doc ? "Document" : "Add a document";
   $("library-file-row").hidden = Boolean(doc);
   $("library-file").value = "";
-  $("library-file-note").textContent = "A plain text file (.txt, .md, .fountain…). Save a PDF or Word script as text first.";
+  $("library-file-note").textContent = "A text file (.txt, .md, .fountain, .json…). Save a PDF or Word script as text first.";
   $("library-doc-name").value = doc?.title ?? "";
   $("library-doc-description").value = doc?.description ?? "";
   $("library-doc-delete").hidden = !doc;
@@ -115,15 +115,75 @@ export async function readLibraryFile() {
   if (!file) return;
   const note = $("library-file-note");
   try {
-    const text = await file.text();
-    if (text.includes("\u0000")) throw new Error("That doesn't look like a text file. Save it as plain text (.txt) first.");
+    const raw = await file.text();
+    if (raw.includes("\u0000")) throw new Error("That doesn't look like a text file. Save it as plain text (.txt) first.");
+    // A JSON file (a scraped script, transcripts…): keep the words, not the wrapping.
+    const fromJson = /\.json$/i.test(file.name) || /^\s*[[{]/.test(raw) ? jsonText(raw) : null;
+    const text = fromJson ?? raw;
+    if (!text.trim()) throw new Error("There's no readable text in that file.");
     library.text = text;
     if (!$("library-doc-name").value.trim()) $("library-doc-name").value = file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ");
     const passages = Math.max(1, Math.round(text.length / 1500));
-    note.textContent = `${file.name}: ${formatSize(text.length)}, about ${passages} passage${passages === 1 ? "" : "s"}.`;
+    note.textContent = fromJson
+      ? `${file.name}: ${formatSize(raw.length)} of JSON, ${formatSize(text.length)} of text kept, about ${passages} passage${passages === 1 ? "" : "s"}.`
+      : `${file.name}: ${formatSize(text.length)}, about ${passages} passage${passages === 1 ? "" : "s"}.`;
   } catch (error) {
     note.textContent = error.message;
   }
+}
+
+// ------------------------------------------------------------- JSON files
+
+/** Fields that hold the words, and fields that say who's speaking, in common script and transcript formats. */
+const TEXT_KEYS = ["text", "line", "lines", "dialogue", "dialog", "content", "body", "action", "description", "value", "transcript", "words"];
+const SPEAKER_KEYS = ["character", "speaker", "name", "who", "role", "char"];
+
+/** A string worth keeping: words, not ids, links, dates or numbers. */
+function looksLikeText(s) {
+  const t = s.trim();
+  if (t.length < 2) return false;
+  if (/^(https?:|www\.|data:|\/)/i.test(t)) return false;
+  if (/^[\w-]{16,}$/.test(t) && !/\s/.test(t)) return false; // an id or hash
+  if (/^[\d\s.:,/+-]+(t[\d:.]+z?)?$/i.test(t)) return false; // numbers, times, dates
+  return true;
+}
+
+/**
+ * The readable text in a JSON file, in order: each object's words (with
+ * who says them, when it says so), and any other text in it. Returns null
+ * if it isn't JSON after all.
+ */
+export function jsonText(raw) {
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  const out = [];
+  const walk = (value) => {
+    if (typeof value === "string") {
+      if (looksLikeText(value)) out.push(value.trim());
+    } else if (Array.isArray(value)) {
+      for (const item of value) walk(item);
+    } else if (value && typeof value === "object") {
+      const keys = Object.keys(value);
+      const textKey = keys.find((k) => TEXT_KEYS.includes(k.toLowerCase()) && typeof value[k] === "string");
+      const speakerKey = keys.find((k) => SPEAKER_KEYS.includes(k.toLowerCase()) && typeof value[k] === "string" && value[k].length <= 40);
+      if (textKey && looksLikeText(value[textKey])) {
+        const words = value[textKey].trim();
+        out.push(speakerKey && speakerKey !== textKey ? `${value[speakerKey].trim().toUpperCase()}: ${words}` : words);
+      }
+      // Nested parts (scenes, lines…), but not the fields already used, nor other loose labels.
+      for (const k of keys) {
+        if (k === textKey || k === speakerKey) continue;
+        if (typeof value[k] === "object" && value[k] !== null) walk(value[k]);
+        else if (!textKey && typeof value[k] === "string" && value[k].trim().includes(" ")) walk(value[k]);
+      }
+    }
+  };
+  walk(data);
+  return out.join("\n");
 }
 
 export async function saveLibraryDoc(event) {
